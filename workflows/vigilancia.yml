@@ -1,1 +1,40 @@
+name: Vigilancia Marcaria INPI
 
+on:
+  schedule:
+    - cron: '0 15 * * 3'   # Miércoles 12:00 Argentina — vigilancia boletín
+    - cron: '0 11 * * *'   # Todos los días 8:00 Argentina — novedades trámites
+  workflow_dispatch:        # Ejecución manual con un clic
+
+jobs:
+  vigilancia:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests pdfplumber jellyfish
+
+      - name: Ejecutar análisis
+        env:
+          EMAIL:                ${{ secrets.EMAIL }}
+          GMAIL_APP_PASSWORD:   ${{ secrets.GMAIL_APP_PASSWORD }}
+          INPI_CUIT:            ${{ secrets.INPI_CUIT }}
+          INPI_API_KEY:         ${{ secrets.INPI_API_KEY }}
+          UMBRAL_SIMILITUD:     '70'
+        run: python analizar.py
+
+      - name: Publicar en GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true
+          exclude_assets: '.github,analizar.py,requirements.txt,README.md'
