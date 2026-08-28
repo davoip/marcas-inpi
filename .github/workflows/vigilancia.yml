@@ -11,17 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Instalar dependencias
         run: pip install requests pdfplumber jellyfish
-
       - name: Ejecutar analisis
         env:
           EMAIL: ${{ secrets.EMAIL }}
@@ -30,11 +26,9 @@ jobs:
           INPI_API_KEY: ${{ secrets.INPI_API_KEY }}
           UMBRAL_SIMILITUD: '70'
         run: python analizar.py
-
       - name: Publicar en GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: .
           keep_files: true
-          exclude_assets: '.github,analizar.py,requirements.txt,README.md'
