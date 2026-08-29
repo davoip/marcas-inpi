@@ -3,7 +3,6 @@ name: Vigilancia Marcaria INPI
 on:
   schedule:
     - cron: '0 15 * * 3'
-    - cron: '0 11 * * *'
   workflow_dispatch:
 
 jobs:
