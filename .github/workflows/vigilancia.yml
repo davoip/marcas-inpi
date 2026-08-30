@@ -1,1 +1,68 @@
+name: Vigilancia Marcaria INPI
 
+on:
+  schedule:
+    - cron: "0 15 * * 3"
+    - cron: "0 11 * * 1,2,4,5,6"
+  workflow_dispatch:
+
+jobs:
+  vigilancia_semanal:
+    if: github.event_name == "workflow_dispatch" || github.event.schedule == "0 15 * * 3"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependencias
+        run: pip install requests pdfplumber jellyfish
+      - name: Ejecutar vigilancia semanal
+        env:
+          EMAIL: ${{ secrets.EMAIL }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          INPI_CUIT: ${{ secrets.INPI_CUIT }}
+          INPI_API_KEY: ${{ secrets.INPI_API_KEY }}
+          UMBRAL_SIMILITUD: "70"
+        run: python analizar.py
+      - name: Publicar en GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true
+
+  actualizar_portfolio:
+    if: github.event_name == "workflow_dispatch" || github.event.schedule == "0 11 * * 1,2,4,5,6"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependencias
+        run: pip install requests
+      - name: Actualizar portfolio via API INPI
+        env:
+          INPI_CUIT: ${{ secrets.INPI_CUIT }}
+          INPI_API_KEY: ${{ secrets.INPI_API_KEY }}
+          EMAIL: ${{ secrets.EMAIL }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python actualizar_portfolio.py
+      - name: Guardar cambios en GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/portfolio.json data/novedades.json data/indice_inpi.json
+          git diff --staged --quiet || git commit -m "Portfolio actualizado"
+          git push
+      - name: Publicar en GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true
