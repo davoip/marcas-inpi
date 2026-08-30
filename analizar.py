@@ -1,83 +1,149 @@
 """
-Vigilancia Marcaria INPI — Script para GitHub Actions
-Corre automáticamente cada miércoles via GitHub Actions.
-Descarga el boletín de Marcas Nuevas, analiza similitudes
-con el portfolio y envía alertas por email.
+Vigilancia Marcaria INPI - Script GitHub Actions
+Descarga TODOS los boletines de Marcas Nuevas del miercoles,
+analiza similitudes y envia email de alerta.
 """
 
-import os, re, json, smtplib, unicodedata, requests, pdfplumber
-from datetime import date
+import os, re, json, smtplib, unicodedata, requests, pdfplumber, logging
+from datetime import date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 from jellyfish import jaro_winkler_similarity
 
-# ── Configuración desde variables de entorno (GitHub Secrets) ──────────────────
+# ── Configuracion ──────────────────────────────────────────────────
 EMAIL       = os.environ.get("EMAIL", "estudiodavo@gmail.com")
 APP_PASS    = os.environ.get("GMAIL_APP_PASSWORD", "")
 UMBRAL      = int(os.environ.get("UMBRAL_SIMILITUD", "70"))
-BOLETIN_REF = 11067
-BOLETIN_DATE= date(2026, 6, 24)
-
-# Credenciales API INPI (Web Service oficial)
 INPI_CUIT   = os.environ.get("INPI_CUIT", "20287461020")
 INPI_KEY    = os.environ.get("INPI_API_KEY", "")
 INPI_WS_URL = "https://ws.inpi.gob.ar/wsinpi.asmx"
+BOLETIN_REF_NUM  = 11067
+BOLETIN_REF_DATE = date(2026, 6, 24)
 
-# ── Clases vinculadas (criterio OMPI) ─────────────────────────────────────────
+logging.basicConfig(level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s")
+
+# ── Clases vinculadas (Otamendi 4.6 / OMPI) ───────────────────────
 CLASES_VINCULADAS = {
     29:[30,31,43], 30:[29,31,43], 31:[29,30],
     32:[33,43], 33:[32,43], 43:[29,30,32,33],
-    35:[36,42], 36:[35,42], 42:[35,36,9], 9:[42,35],
-    25:[18,28], 28:[25,41], 41:[35,38,42], 38:[41,42,35],
-    40:[42], 11:[20,21], 20:[11,21], 21:[11,20],
+    35:[36,42,38], 36:[35,42], 42:[35,36,9,40], 9:[42,35,38],
+    38:[41,42,35], 40:[42,37],
+    25:[18,28,24], 18:[25,14], 28:[25,41],
+    41:[35,38,42,28],
+    44:[45,35,42], 5:[44,3,31],
+    11:[20,21,19], 20:[11,21,19], 21:[11,20],
+    19:[37,20,40], 37:[19,40,42],
+    14:[25,18,35], 45:[35,42,36,44], 16:[41,35,9],
 }
 
-# ── Portfolio desde data/portfolio.json ───────────────────────────────────────
+TERMINOS_DEBILES = {
+    'SERVICIOS','PRODUCTOS','GRUPO','ESTUDIO','EMPRESA','CENTRO','CLUB',
+    'DIGITAL','TECH','NET','WEB','ONLINE','GLOBAL','ARGENTINA',
+    'COMERCIAL','INDUSTRIAL','NACIONAL','SUPER','MEGA','MAX','PLUS','PRO',
+    'PREMIUM','ELITE','MASTER','GYM','FITNESS','SPORT','HOME','SHOP',
+    'STORE','MARKET','EXPRESS','TOTAL','REAL','NUEVA','NUEVO','GRAN','GRANDE'
+}
+
+# ── Portfolio ──────────────────────────────────────────────────────
 def cargar_portfolio():
-    ruta = os.path.join(os.path.dirname(__file__), "data", "portfolio.json")
+    ruta = Path(__file__).parent / "data" / "portfolio.json"
     with open(ruta, encoding="utf-8") as f:
         return json.load(f)
 
-# ── Número de boletín estimado ────────────────────────────────────────────────
-def numero_boletin(hoy=None):
+# ── Detectar TODOS los boletines de Marcas Nuevas del miercoles ───
+def detectar_boletines(hoy=None):
+    """
+    Calcula el numero estimado de boletin para CUALQUIER miercoles
+    basandose en la referencia: boletin 11067 = 24/06/2026.
+    Luego prueba un rango amplio alrededor del estimado para encontrar
+    TODOS los boletines _3_ (Marcas Nuevas) publicados ese miercoles.
+    Funciona para cualquier fecha futura automaticamente.
+    """
     hoy = hoy or date.today()
-    semanas = round((hoy - BOLETIN_DATE).days / 7)
-    return BOLETIN_REF + semanas
 
-# ── Descarga PDF ──────────────────────────────────────────────────────────────
+    # Calcular el miercoles mas cercano (el de esta semana o el ultimo)
+    dia_semana = hoy.weekday()  # 0=lunes, 2=miercoles
+    if dia_semana >= 2:
+        dias_desde_mie = dia_semana - 2
+    else:
+        dias_desde_mie = dia_semana + 5
+    miercoles = hoy - __import__('datetime').timedelta(days=dias_desde_mie)
+
+    # Estimar numero de boletin para ese miercoles
+    semanas = round((miercoles - BOLETIN_REF_DATE).days / 7)
+    base = BOLETIN_REF_NUM + semanas
+    logging.info(f"Miercoles: {miercoles} — Boletin estimado: #{base}")
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+    boletines = []
+
+    # Buscar en rango amplio alrededor del estimado
+    # (puede haber varios boletines por miercoles, con numeros consecutivos)
+    for num in range(base - 8, base + 15):
+        url = f"https://portaltramites.inpi.gob.ar/Uploads/Boletines/{num}_3_.pdf"
+        try:
+            r = requests.head(url, headers=headers, timeout=15, allow_redirects=True)
+            if r.status_code == 200:
+                boletines.append(num)
+                logging.info(f"  Boletin #{num} ENCONTRADO")
+            else:
+                logging.debug(f"  Boletin #{num} no disponible (HTTP {r.status_code})")
+        except Exception as e:
+            logging.debug(f"  Boletin #{num} error: {e}")
+
+    if not boletines:
+        logging.warning(f"No se encontraron boletines. Usando estimado #{base}")
+        boletines = [base]
+
+    logging.info(f"Boletines de Marcas Nuevas detectados: {boletines}")
+    return boletines
+
+# ── Descargar PDF ──────────────────────────────────────────────────
 def descargar(num):
     url = f"https://portaltramites.inpi.gob.ar/Uploads/Boletines/{num}_3_.pdf"
-    print(f"Descargando boletín #{num}...")
+    logging.info(f"Descargando boletin #{num}...")
     r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=90)
     r.raise_for_status()
     ruta = f"/tmp/boletin_{num}.pdf"
-    with open(ruta, "wb") as f: f.write(r.content)
-    print(f"  {len(r.content)//1024} KB descargados")
+    with open(ruta, "wb") as f:
+        f.write(r.content)
+    logging.info(f"  #{num}: {len(r.content)//1024} KB")
     return ruta
 
-# ── Parser PDF ────────────────────────────────────────────────────────────────
+# ── Parser PDF — solo seccion MARCAS NUEVAS ───────────────────────
 def parsear(ruta):
     texto = ""
     with pdfplumber.open(ruta) as pdf:
         for page in pdf.pages[1:]:
             t = page.extract_text()
-            if t: texto += t + "\n"
+            if t:
+                texto += t + "\n"
+
     idx = texto.find("MARCAS NUEVAS")
     sec = texto[idx:] if idx != -1 else texto
+
     marcas = []
     for b in re.split(r'\(21\)\s*Acta\s*', sec)[1:]:
         mA = re.search(r'^(\d+)', b)
         mC = re.search(r'\(51\)\s*Clase\s*(\d+)', b)
-        if not mA or not mC: continue
+        if not mA or not mC:
+            continue
         mD = re.search(r'\(54\)\s*([^\n\r(]{1,80})', b)
         mT = re.search(r'\(73\)\s*([^\n\r(]{1,120})', b)
         den = mD.group(1).strip() if mD else "[FIGURATIVA]"
-        tit = re.sub(r'\s*-\s*[A-Z]{2}\s*\*?\s*$', '', mT.group(1).strip()) if mT else ""
-        marcas.append({"acta":mA.group(1),"clase":int(mC.group(1)),"denominacion":den or "[FIGURATIVA]","titular":tit})
-    print(f"  {len(marcas)} marcas encontradas en el boletín")
+        tit = re.sub(r'\s*-\s*[A-Z]{2}\s*\*?\s*$', '',
+                     mT.group(1).strip()) if mT else ""
+        marcas.append({
+            "acta": mA.group(1),
+            "clase": int(mC.group(1)),
+            "denominacion": den or "[FIGURATIVA]",
+            "titular": tit
+        })
     return marcas
 
-# ── Motor de similitud (Otamendi + OMPI) ─────────────────────────────────────
+# ── Motor de similitud (Otamendi §4.3-4.7 / OMPI) ─────────────────
 def norm(s):
     s = s.upper()
     s = unicodedata.normalize("NFD", s)
@@ -85,65 +151,109 @@ def norm(s):
     return re.sub(r'[^A-Z0-9\s]', '', s).strip()
 
 def fonetica(s):
-    for a, b in [("QU","K"),("CE","SE"),("CI","SI"),("GE","JE"),("GI","JI"),
-                 ("CH","X"),("LL","Y"),("V","B"),("Z","S"),("H","")]:
+    for a, b in [("GU","GU"),("QU","K"),("CE","SE"),("CI","SI"),
+                 ("GE","JE"),("GI","JI"),("CH","X"),("LL","Y"),
+                 ("PH","F"),("TH","T"),("W","V"),("V","B"),
+                 ("Z","S"),("H","")]:
         s = s.replace(a, b)
     s = re.sub(r'[AEIOU]', '', s)
     return re.sub(r'(.)\1+', r'\1', s)
 
-def similitud(a, b):
+def jw(s1, s2):
+    return jaro_winkler_similarity(s1, s2)
+
+def es_debil(s):
+    palabras = s.split()
+    if not palabras: return False
+    return sum(1 for w in palabras if w in TERMINOS_DEBILES) / len(palabras) >= 0.5
+
+def calcular_similitud(a, b):
     na, nb = norm(a), norm(b)
     if na == nb: return 100
-    scores = [jaro_winkler_similarity(na, nb) * 100]
-    fa, fb = fonetica(na), fonetica(nb)
-    if fa and fb: scores.append(jaro_winkler_similarity(fa, fb) * 100)
-    if na in nb or nb in na: scores.append(85)
-    wa = [w for w in na.split() if len(w) > 3]
-    wb = [w for w in nb.split() if len(w) > 3]
-    if wa and wb:
-        comunes = set(wa) & set(wb)
-        if comunes: scores.append(60 + len(comunes)/max(len(wa),len(wb)) * 30)
-    return round(max(scores))
+    scores = []
 
-def riesgo(score, rel):
+    # Grafica/ortografica (§4.3)
+    sg = jw(na, nb) * 100
+    scores.append(sg)
+    corte = max(3, int(max(len(na), len(nb)) * 0.45))
+    si = jw(na[:corte], nb[:corte]) * 100
+    if si > sg: scores.append(si * 0.92 + sg * 0.08)
+
+    # Fonetica/auditiva (§4.4)
+    fa, fb = fonetica(na), fonetica(nb)
+    if fa and fb:
+        scores.append(jw(fa, fb) * 100)
+        fia, fib = fonetica(na[:corte]), fonetica(nb[:corte])
+        if fia and fib: scores.append(jw(fia, fib) * 100 * 0.92)
+
+    # Conceptual/ideologica (§4.5)
+    if na in nb or nb in na:
+        ratio = min(len(na), len(nb)) / max(len(na), len(nb))
+        scores.append(68 + ratio * 22)
+
+    wA = [w for w in na.split() if len(w) > 2 and w not in TERMINOS_DEBILES]
+    wB = [w for w in nb.split() if len(w) > 2 and w not in TERMINOS_DEBILES]
+    if wA and wB:
+        comunes = set(wA) & set(wB)
+        if comunes:
+            ratio = len(comunes) / max(len(wA), len(wB))
+            prim = wA[0] == wB[0] if wA and wB else False
+            scores.append(55 + ratio * 30 + (12 if prim else 0))
+
+    maxsc = round(max(scores))
+    if es_debil(na) and es_debil(nb) and maxsc < 90:
+        return round(maxsc * 0.82)
+    return maxsc
+
+def nivel_riesgo(score, rel):
     if not rel: return None
-    if score >= 90 or (score >= 80 and rel == "idéntica"): return "ALTO"
-    if score >= 70 and rel == "idéntica": return "ALTO"
-    if score >= 70 and rel == "vinculada": return "MEDIO"
-    if score >= 55 and rel == "idéntica": return "MEDIO"
-    if score >= 55: return "BAJO"
-    if score >= 40 and rel == "idéntica": return "BAJO"
+    if score >= 95: return "ALTO"
+    if score >= 80 and rel == "identica": return "ALTO"
+    if score >= 78 and rel == "vinculada": return "ALTO"
+    if score >= 65 and rel == "identica": return "MEDIO"
+    if score >= 62 and rel == "vinculada": return "MEDIO"
+    if score >= 50 and rel == "identica": return "BAJO"
+    if score >= 48 and rel == "vinculada": return "BAJO"
     return None
 
-def analizar(boletin, portfolio):
+def relacion_clases(c1, c2):
+    if c1 == c2: return "identica"
+    if c2 in CLASES_VINCULADAS.get(c1, []): return "vinculada"
+    return None
+
+# ── Analisis ───────────────────────────────────────────────────────
+def analizar(marcas_boletin, portfolio):
     resultados = {}
     for mi in portfolio:
-        conflictos = []
-        for mb in boletin:
-            c1, c2 = mb["clase"], mi["clase"]
-            rel = "idéntica" if c1==c2 else ("vinculada" if c2 in CLASES_VINCULADAS.get(c1,[]) else None)
+        amenazas = []
+        for mb in marcas_boletin:
+            rel = relacion_clases(mb["clase"], mi["clase"])
             if not rel: continue
-            sc = similitud(mb["denominacion"], mi["denominacion"])
+            sc = calcular_similitud(mb["denominacion"], mi["denominacion"])
             if sc < UMBRAL: continue
-            rv = riesgo(sc, rel)
+            rv = nivel_riesgo(sc, rel)
             if not rv: continue
-            conflictos.append({**mb, "score":sc, "riesgo":rv, "rel_clase":rel})
-        if conflictos:
-            conflictos.sort(key=lambda x: -x["score"])
-            key = f"{mi['denominacion']} (Cl.{mi['clase']})"
-            resultados[key] = {"mi_marca": mi, "amenazas": conflictos}
+            amenazas.append({**mb, "score": sc, "riesgo": rv, "rel_clase": rel})
+        if amenazas:
+            amenazas.sort(key=lambda x: -x["score"])
+            key = f"{mi['denominacion']}|{mi['clase']}"
+            resultados[key] = {"mi_marca": mi, "amenazas": amenazas}
     return resultados
 
-# ── Generar HTML del reporte ─────────────────────────────────────────────────
-def generar_html(resultados, num, fecha, total):
+# ── HTML del reporte ───────────────────────────────────────────────
+def generar_html(resultados, boletines, fecha_str, total):
     COLOR = {"ALTO":"#ff4d6d","MEDIO":"#ffc93c","BAJO":"#2dd4a0"}
-    BG    = {"ALTO":"rgba(255,77,109,.06)","MEDIO":"rgba(255,201,60,.04)","BAJO":"rgba(45,212,160,.03)"}
     ORDEN = {"ALTO":0,"MEDIO":1,"BAJO":2}
 
-    items = sorted(resultados.items(), key=lambda x: min(ORDEN[a["riesgo"]] for a in x[1]["amenazas"]))
+    items = sorted(resultados.items(),
+        key=lambda x: min(ORDEN[a["riesgo"]] for a in x[1]["amenazas"]))
+
     altos  = sum(1 for v in resultados.values() if any(a["riesgo"]=="ALTO"  for a in v["amenazas"]))
-    medios = sum(1 for v in resultados.values() if not any(a["riesgo"]=="ALTO" for a in v["amenazas"]) and any(a["riesgo"]=="MEDIO" for a in v["amenazas"]))
+    medios = sum(1 for v in resultados.values()
+        if not any(a["riesgo"]=="ALTO" for a in v["amenazas"])
+        and any(a["riesgo"]=="MEDIO" for a in v["amenazas"]))
     bajos  = len(resultados) - altos - medios
+    nums   = ", ".join(f"#{n}" for n in boletines)
 
     cards = ""
     for key, data in items:
@@ -155,77 +265,85 @@ def generar_html(resultados, num, fecha, total):
             filas += f"""<tr style="border-bottom:1px solid #2e3350">
               <td style="padding:8px;color:{COLOR[a['riesgo']]};font-weight:700">{a['riesgo']}</td>
               <td style="padding:8px;font-weight:600">{a['denominacion']}</td>
-              <td style="padding:8px;color:#7b82a8">Cl. {a['clase']}</td>
+              <td style="padding:8px;color:#7b82a8">Cl.{a['clase']}</td>
               <td style="padding:8px;color:#7b82a8">{a['titular']}</td>
               <td style="padding:8px;color:{COLOR[a['riesgo']]};font-weight:700">{a['score']}%</td>
               <td style="padding:8px;color:#7b82a8">{a['rel_clase']}</td>
-              <td style="padding:8px"><a href="{url}" style="color:#4f7fff;font-size:12px">Ver →</a></td>
+              <td style="padding:8px"><a href="{url}" style="color:#4f7fff">Ver INPI →</a></td>
             </tr>"""
-        cards += f"""<div style="margin-bottom:16px;border:1px solid {COLOR[top]}55;border-radius:8px;overflow:hidden;background:{BG[top]}">
-          <div style="padding:12px 16px;border-bottom:1px solid {COLOR[top]}33;display:flex;align-items:center;gap:10px">
-            <span style="background:{COLOR[top]}22;color:{COLOR[top]};border:1px solid {COLOR[top]}55;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:800">{top}</span>
-            <span style="font-weight:700;font-size:15px">🔒 {mi['denominacion']}</span>
-            <span style="color:#4f7fff;font-size:12px">Clase {mi['clase']}</span>
-            <span style="color:#7b82a8;font-size:12px;margin-left:auto">Acta {mi.get('acta','—')}</span>
+        cards += f"""
+        <div style="margin-bottom:16px;border:1px solid {COLOR[top]}44;border-radius:8px;overflow:hidden">
+          <div style="background:#1a1d27;padding:12px 16px;border-bottom:1px solid {COLOR[top]}33">
+            <span style="background:{COLOR[top]}22;color:{COLOR[top]};border:1px solid {COLOR[top]}55;
+              padding:2px 10px;border-radius:20px;font-size:11px;font-weight:800">{top}</span>
+            <span style="font-weight:700;font-size:15px;margin-left:10px">🔒 {mi['denominacion']}</span>
+            <span style="color:#4f7fff;font-size:12px;margin-left:8px">Clase {mi['clase']}</span>
+            <span style="color:#7b82a8;font-size:11px;margin-left:8px">Acta {mi.get('acta','—')}</span>
           </div>
           <div style="overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;font-size:13px">
-              <thead><tr style="background:#1a1d27">
+              <thead><tr style="background:#22263a">
                 <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Riesgo</th>
-                <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Denominación</th>
+                <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Denominacion</th>
                 <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Clase</th>
                 <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Titular</th>
                 <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Similitud</th>
-                <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Relación</th>
-                <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">INPI</th>
+                <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Relacion</th>
+                <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Expediente</th>
               </tr></thead>
               <tbody>{filas}</tbody>
             </table>
           </div>
         </div>"""
 
-    sin_conflictos = f"""<div style="background:#1a1d27;border:1px solid #2e3350;border-radius:10px;padding:40px;text-align:center;color:#7b82a8">
-        ✅ Sin conflictos detectados en el boletín #{num}</div>""" if not resultados else ""
+    sin = f'<div style="background:#1a1d27;border:1px solid #2e3350;border-radius:10px;padding:40px;text-align:center;color:#7b82a8">Sin conflictos detectados en los boletines analizados.</div>' if not resultados else ""
 
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>Vigilancia Marcas — Boletín #{num}</title></head>
+<title>Vigilancia Marcas — {fecha_str}</title></head>
 <body style="background:#0f1117;color:#e8eaf6;font-family:system-ui,sans-serif;padding:24px;max-width:960px;margin:0 auto">
 <div style="background:#1a1d27;border:1px solid #2e3350;border-radius:12px;padding:20px;margin-bottom:20px">
-  <h1 style="margin:0 0 4px;font-size:22px">📋 Vigilancia Marcaria — Boletín #{num}</h1>
-  <p style="color:#7b82a8;margin:0;font-size:13px">Publicación: {fecha} · {total} marcas relevadas · Criterios: Otamendi + Manual Armonizado OMPI</p>
+  <h1 style="margin:0 0 6px;font-size:22px">Vigilancia Marcaria INPI</h1>
+  <p style="color:#7b82a8;margin:0;font-size:13px">
+    {fecha_str} &nbsp;·&nbsp; Boletines analizados: <b style="color:#4f7fff">{nums}</b>
+    &nbsp;·&nbsp; {total} marcas relevadas
+    &nbsp;·&nbsp; Criterios: Otamendi + Manual Armonizado OMPI
+  </p>
 </div>
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
   <div style="background:#1a1d27;border:1px solid #2e3350;border-radius:8px;padding:14px;text-align:center">
-    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">Afectadas</div>
+    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">Marcas afectadas</div>
     <div style="font-size:26px;font-weight:800">{len(resultados)}</div>
   </div>
   <div style="background:rgba(255,77,109,.04);border:1px solid #ff4d6d44;border-radius:8px;padding:14px;text-align:center">
-    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">🔴 Alto</div>
+    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">Alto</div>
     <div style="font-size:26px;font-weight:800;color:#ff4d6d">{altos}</div>
   </div>
   <div style="background:rgba(255,201,60,.03);border:1px solid #ffc93c44;border-radius:8px;padding:14px;text-align:center">
-    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">🟡 Medio</div>
+    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">Medio</div>
     <div style="font-size:26px;font-weight:800;color:#ffc93c">{medios}</div>
   </div>
   <div style="background:rgba(45,212,160,.02);border:1px solid #2dd4a044;border-radius:8px;padding:14px;text-align:center">
-    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">🟢 Bajo</div>
+    <div style="font-size:11px;color:#7b82a8;text-transform:uppercase">Bajo</div>
     <div style="font-size:26px;font-weight:800;color:#2dd4a0">{bajos}</div>
   </div>
 </div>
-{cards}{sin_conflictos}
+{cards}{sin}
 <p style="color:#7b82a8;font-size:11px;text-align:center;margin-top:24px">
-  Generado automáticamente · estudiodavo@gmail.com · github.com/davoip/marcas-inpi</p>
+  Generado automaticamente · estudiodavo@gmail.com · github.com/davoip/marcas-inpi
+</p>
 </body></html>"""
 
-# ── Enviar email ──────────────────────────────────────────────────────────────
-def enviar_email(html, num, resultados):
+# ── Email ──────────────────────────────────────────────────────────
+def enviar_email(html, boletines, resultados):
     if not APP_PASS:
-        print("GMAIL_APP_PASSWORD no configurado — email no enviado.")
+        logging.warning("GMAIL_APP_PASSWORD no configurado — email no enviado.")
         return
-    altos = sum(1 for v in resultados.values() if any(a["riesgo"]=="ALTO" for a in v["amenazas"]))
-    if altos:       asunto = f"[Marcas INPI] ⚠ {altos} conflicto(s) ALTO(S) — Boletín #{num}"
-    elif resultados:asunto = f"[Marcas INPI] {len(resultados)} conflicto(s) — Boletín #{num}"
-    else:           asunto = f"[Marcas INPI] Sin conflictos — Boletín #{num} ✅"
+    altos = sum(1 for v in resultados.values()
+                if any(a["riesgo"]=="ALTO" for a in v["amenazas"]))
+    nums = "+".join(str(n) for n in boletines)
+    if altos:       asunto = f"[Marcas INPI] {altos} conflicto(s) ALTO(S) — Boletines {nums}"
+    elif resultados:asunto = f"[Marcas INPI] {len(resultados)} conflicto(s) — Boletines {nums}"
+    else:           asunto = f"[Marcas INPI] Sin conflictos — Boletines {nums} OK"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = asunto
@@ -235,127 +353,82 @@ def enviar_email(html, num, resultados):
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL, APP_PASS)
         smtp.send_message(msg)
-    print(f"Email enviado: {asunto}")
+    logging.info(f"Email enviado: {asunto}")
 
-# ── Guardar reporte en data/ para GitHub Pages ───────────────────────────────
-def guardar_reporte(html, num):
-    ruta = os.path.join(os.path.dirname(__file__), "data", f"reporte_{num}.html")
+# ── Guardar reporte ────────────────────────────────────────────────
+def guardar_reporte(html, boletines):
+    data_dir = Path(__file__).parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    nombre = f"reporte_{'_'.join(str(n) for n in boletines)}.html"
+    ruta = data_dir / nombre
     with open(ruta, "w", encoding="utf-8") as f:
         f.write(html)
-    # Actualizar índice de reportes
-    idx_ruta = os.path.join(os.path.dirname(__file__), "data", "reportes.json")
+    # Actualizar indice
+    idx_ruta = data_dir / "reportes.json"
     reportes = []
-    if os.path.exists(idx_ruta):
+    if idx_ruta.exists():
         with open(idx_ruta) as f:
             reportes = json.load(f)
-    if not any(r["num"] == num for r in reportes):
-        reportes.insert(0, {"num": num, "fecha": date.today().strftime("%d/%m/%Y"), "archivo": f"reporte_{num}.html"})
+    entrada = {
+        "nums": boletines,
+        "fecha": date.today().strftime("%d/%m/%Y"),
+        "archivo": nombre,
+        "label": "+".join(f"#{n}" for n in boletines)
+    }
+    if not any(r.get("archivo") == nombre for r in reportes):
+        reportes.insert(0, entrada)
     with open(idx_ruta, "w") as f:
-        json.dump(reportes[:52], f)  # guardar último año
-    print(f"Reporte guardado: {ruta}")
+        json.dump(reportes[:52], f)
+    logging.info(f"Reporte guardado: {ruta}")
 
-# ── Consulta API INPI (ConsultaNotificaciones) ────────────────────────────────
-def consultar_notificaciones_inpi(acta):
-    """Consulta novedades de un trámite via API oficial del INPI."""
-    if not INPI_KEY:
-        return []
-    import xml.etree.ElementTree as ET
-    xml_body = f"""<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <ConsultaNotificaciones xmlns="http://tempuri.org/">
-      <strCuit>{INPI_CUIT}</strCuit>
-      <strClave>{INPI_KEY}</strClave>
-      <strActa>{acta}</strActa>
-    </ConsultaNotificaciones>
-  </soap:Body>
-</soap:Envelope>"""
-    try:
-        headers = {
-            'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': 'http://tempuri.org/ConsultaNotificaciones'
-        }
-        r = requests.post(INPI_WS_URL, data=xml_body.encode('utf-8'),
-                         headers=headers, timeout=30)
-        r.raise_for_status()
-        root = ET.fromstring(r.content)
-        ns = {'ns': 'http://tempuri.org/'}
-        notifs = []
-        for n in root.iter():
-            if 'Notificacion' in n.tag and n.text:
-                notifs.append(n.text.strip())
-        return notifs
-    except Exception as e:
-        logging.warning(f"API INPI error para acta {acta}: {e}")
-        return []
-
-# ── Consulta denominación via API INPI (ConsultaDenominacion) ─────────────────
-def consultar_denominacion_inpi(denominacion, clase=None):
-    """Busca marcas por denominación en la base INPI."""
-    if not INPI_KEY:
-        return []
-    import xml.etree.ElementTree as ET
-    clase_str = str(clase) if clase else ""
-    xml_body = f"""<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <ConsultaDenominacion xmlns="http://tempuri.org/">
-      <strCuit>{INPI_CUIT}</strCuit>
-      <strClave>{INPI_KEY}</strClave>
-      <strDenominacion>{denominacion}</strDenominacion>
-      <strClase>{clase_str}</strClase>
-    </ConsultaDenominacion>
-  </soap:Body>
-</soap:Envelope>"""
-    try:
-        headers = {
-            'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': 'http://tempuri.org/ConsultaDenominacion'
-        }
-        r = requests.post(INPI_WS_URL, data=xml_body.encode('utf-8'),
-                         headers=headers, timeout=30)
-        r.raise_for_status()
-        root = ET.fromstring(r.content)
-        marcas = []
-        for m in root.iter():
-            if 'Marca' in m.tag:
-                marcas.append({'texto': m.text or ''})
-        return marcas
-    except Exception as e:
-        logging.warning(f"API INPI ConsultaDenominacion error: {e}")
-        return []
-
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main ───────────────────────────────────────────────────────────
 def main():
-    print("=" * 50)
-    print("VIGILANCIA MARCARIA INPI")
-    print("=" * 50)
+    logging.info("=" * 50)
+    logging.info("VIGILANCIA MARCARIA INPI")
+    logging.info("=" * 50)
 
     portfolio = cargar_portfolio()
-    print(f"Portfolio: {len(portfolio)} marcas")
+    logging.info(f"Portfolio: {len(portfolio)} marcas")
 
-    num = numero_boletin()
-    print(f"Boletín estimado: #{num}")
+    # Detectar todos los boletines de Marcas Nuevas de esta semana
+    boletines = detectar_boletines()
+    logging.info(f"Boletines a procesar: {boletines}")
 
-    try:
-        ruta_pdf = descargar(num)
-    except requests.HTTPError as e:
-        print(f"Error al descargar boletín #{num}: {e}")
-        print("Puede que aún no esté publicado. Se reintentará la próxima ejecución.")
+    # Descargar y parsear todos
+    todas_marcas = []
+    actas_vistas = set()
+    boletines_ok = []
+    for num in boletines:
+        try:
+            ruta = descargar(num)
+            marcas = parsear(ruta)
+            logging.info(f"Boletin #{num}: {len(marcas)} marcas")
+            for m in marcas:
+                if m["acta"] not in actas_vistas:
+                    actas_vistas.add(m["acta"])
+                    todas_marcas.append(m)
+            boletines_ok.append(num)
+        except Exception as e:
+            logging.error(f"Error con boletin #{num}: {e}")
+
+    if not todas_marcas:
+        logging.error("No se pudieron descargar boletines.")
         return
 
-    boletin = parsear(ruta_pdf)
-    resultados = analizar(boletin, portfolio)
-    print(f"Marcas propias con conflictos: {len(resultados)}")
+    logging.info(f"Total marcas unicas relevadas: {len(todas_marcas)}")
 
-    html = generar_html(resultados, num, date.today().strftime("%d/%m/%Y"), len(boletin))
-    guardar_reporte(html, num)
-    enviar_email(html, num, resultados)
-    print("Proceso completado.")
+    # Analizar
+    resultados = analizar(todas_marcas, portfolio)
+    logging.info(f"Marcas propias con conflictos: {len(resultados)}")
+
+    # Generar reporte
+    fecha_str = date.today().strftime("%d/%m/%Y")
+    html = generar_html(resultados, boletines_ok, fecha_str, len(todas_marcas))
+    guardar_reporte(html, boletines_ok)
+
+    # Enviar email
+    enviar_email(html, boletines_ok, resultados)
+    logging.info("Proceso completado.")
 
 if __name__ == "__main__":
     main()
