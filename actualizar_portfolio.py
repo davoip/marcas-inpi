@@ -63,25 +63,52 @@ def consultar_agente(agente):
     </ConsultaCuitOTitular>"""
     try:
         root = soap_call("ConsultaCuitOTitular", body)
+
+        # DEBUG: mostrar XML completo para entender la estructura
+        import xml.etree.ElementTree as ET2
+        xml_str = ET.tostring(root, encoding='unicode')
+        logging.info(f"XML agente {agente} (primeros 2000 chars):")
+        logging.info(xml_str[:2000])
+
         marcas = []
+        # Intentar todas las variantes posibles de nombres de atributos y tags
         for elem in root.iter():
-            acta  = elem.get('acta') or elem.get('Acta') or elem.get('nroActa')
-            den   = elem.get('denominacion') or elem.get('Denominacion')
-            clase = elem.get('clase') or elem.get('Clase')
-            est   = elem.get('estado') or elem.get('Estado', 'En Trámite')
-            tit   = elem.get('titular') or elem.get('Titular', '')
+            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+            # Buscar por atributos
+            acta  = (elem.get('acta') or elem.get('Acta') or elem.get('nroActa') or
+                     elem.get('NroActa') or elem.get('numero') or elem.get('Numero'))
+            den   = (elem.get('denominacion') or elem.get('Denominacion') or
+                     elem.get('nombre') or elem.get('Nombre'))
+            clase = (elem.get('clase') or elem.get('Clase') or
+                     elem.get('nroClase') or elem.get('NroClase'))
+            est   = (elem.get('estado') or elem.get('Estado') or
+                     elem.get('situacion') or elem.get('Situacion'))
+            tit   = (elem.get('titular') or elem.get('Titular') or
+                     elem.get('solicitante') or elem.get('Solicitante', ''))
+            # Buscar tambien por texto del elemento hijo
+            if not acta:
+                for child in elem:
+                    ctag = child.tag.split('}')[-1].lower() if '}' in child.tag else child.tag.lower()
+                    if 'acta' in ctag or 'numero' in ctag: acta = child.text
+                    if 'denom' in ctag or 'nombre' in ctag: den = child.text
+                    if 'clase' in ctag: clase = child.text
+                    if 'estado' in ctag or 'situac' in ctag: est = child.text
+                    if 'titular' in ctag or 'solicit' in ctag: tit = child.text
             if acta and den:
                 marcas.append({
-                    "acta": acta.strip(),
-                    "denominacion": den.strip(),
-                    "clase": int(clase) if clase and str(clase).isdigit() else 0,
-                    "estado": est.strip() if est else "En Trámite",
-                    "titular": tit.strip() if tit else "",
+                    "acta": str(acta).strip(),
+                    "denominacion": str(den).strip(),
+                    "clase": int(clase) if clase and str(clase).strip().isdigit() else 0,
+                    "estado": str(est).strip() if est else "En Trámite",
+                    "titular": str(tit).strip() if tit else "",
                     "agente": agente
                 })
+        logging.info(f"  Agente {agente}: {len(marcas)} marcas parseadas")
         return marcas
     except Exception as e:
         logging.error(f"Error agente {agente}: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
         return []
 
 # ── 2. Consultar novedades de un tramite ──────────────────────────
@@ -285,8 +312,10 @@ def main():
     logging.info("Actualizando estado detallado de tramites...")
     actualizados = 0
     tramites_activos = [m for m in portfolio
-                       if m.get("estado","").lower() in ("en trámite","en tramite")
-                       and m.get("acta")][:30]  # max 30/dia
+                       if m.get("estado","").strip().lower() in
+                       ("en trámite","en tramite","en tr\u00e1mite","tramite","trámite")
+                       and m.get("acta") and m["acta"] != "—"][:30]
+    logging.info(f"Tramites activos para actualizar estado: {len(tramites_activos)}")  # max 30/dia
     for m in tramites_activos:
         datos = consultar_estado_detallado(m["acta"])
         if datos:
