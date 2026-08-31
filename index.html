@@ -292,8 +292,15 @@ td{padding:10px 14px;vertical-align:middle}
   </div>
 
   <!-- Portfolio table -->
-  <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">
-    Portfolio completo
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em">
+      Portfolio completo
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
+      <input type="checkbox" id="ocultar-concedidas" onchange="renderPortfolio()"
+        style="accent-color:var(--accent)">
+      Ocultar concedidas
+    </label>
   </div>
   <div class="search-row">
     <input type="text" id="port-search" placeholder="Buscar denominación..." oninput="renderPortfolio()">
@@ -309,8 +316,15 @@ td{padding:10px 14px;vertical-align:middle}
   <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>Denominación</th><th>Clase</th><th>Estado</th>
-        <th>Acta</th><th>Agente</th><th>Acciones</th>
+        <th onclick="sortPortfolio('denominacion')" style="cursor:pointer;user-select:none">
+          Denominación <span id="sort-denominacion">↕</span></th>
+        <th onclick="sortPortfolio('clase')" style="cursor:pointer;user-select:none">
+          Clase <span id="sort-clase">↕</span></th>
+        <th>Estado detallado</th>
+        <th>Fecha publicación</th>
+        <th onclick="sortPortfolio('acta')" style="cursor:pointer;user-select:none">
+          Acta <span id="sort-acta">↕</span></th>
+        <th>Agente</th><th>Acciones</th>
       </tr></thead>
       <tbody id="port-tbody"></tbody>
     </table>
@@ -795,17 +809,50 @@ function renderStats() {
       <div class="stat-sub">Davo IP</div></div>`;
 }
 
+// Ordenamiento del portfolio
+let portSortCol = 'denominacion';
+let portSortDir = 'asc'; // por defecto ascendente alfabético
+
+function sortPortfolio(col) {
+  if (portSortCol === col) {
+    portSortDir = portSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    portSortCol = col;
+    portSortDir = 'asc';
+  }
+  // Actualizar indicadores visuales
+  ['denominacion','clase','acta'].forEach(c => {
+    const el = document.getElementById('sort-'+c);
+    if(el) el.textContent = c===col ? (portSortDir==='asc'?'↑':'↓') : '↕';
+  });
+  portPage = 1;
+  renderPortfolio();
+}
+
 function renderPortfolio() {
   const q = (document.getElementById('port-search').value||'').toUpperCase();
   const fc = document.getElementById('port-clase').value;
   const fe = document.getElementById('port-estado').value;
+  const ocultarConcedidas = document.getElementById('ocultar-concedidas')?.checked;
+
   portFiltered = portfolio.map((m,i)=>({m,i}))
     .filter(({m})=>{
       if(q && !m.denominacion.toUpperCase().includes(q)) return false;
       if(fc && String(m.clase)!==fc) return false;
       if(fe && m.estado!==fe) return false;
+      if(ocultarConcedidas && m.estado==='Concedida') return false;
       return true;
     }).map(({i})=>i);
+
+  // Ordenar (cambio 3)
+  portFiltered.sort((a,b)=>{
+    const ma=portfolio[a], mb=portfolio[b];
+    let va, vb;
+    if(portSortCol==='clase'){ va=ma.clase||0; vb=mb.clase||0; return portSortDir==='asc'?va-vb:vb-va; }
+    if(portSortCol==='acta'){ va=parseInt(ma.acta)||0; vb=parseInt(mb.acta)||0; return portSortDir==='asc'?va-vb:vb-va; }
+    va=(ma.denominacion||'').toUpperCase(); vb=(mb.denominacion||'').toUpperCase();
+    return portSortDir==='asc'?va.localeCompare(vb):vb.localeCompare(va);
+  });
 
   const totalPages = Math.max(1,Math.ceil(portFiltered.length/PORT_PAGE_SIZE));
   if(portPage>totalPages) portPage=1;
@@ -813,18 +860,44 @@ function renderPortfolio() {
 
   const tbody = document.getElementById('port-tbody');
   if(!items.length){
-    tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Sin resultados</td></tr>';
+    tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Sin resultados</td></tr>';
   } else {
     tbody.innerHTML = items.map(i=>{
       const m = portfolio[i];
-      const estadoBadge = m.estado==='Concedida'
-        ? `<span class="badge badge-concedida"><span class="dot"></span>${m.estado}</span>`
-        : `<span class="badge badge-tramite"><span class="dot"></span>${m.estado}</span>`;
       const url = `https://portaltramites.inpi.gob.ar/MarcasConsultas/Resultado?acta=${m.acta}`;
+
+      // Estado detallado (se enriquece via API diariamente)
+      let estadoHtml;
+      if(m.estado==='Concedida'){
+        estadoHtml = `<span class="badge badge-concedida"><span class="dot"></span>Concedida</span>`;
+      } else {
+        // sub_estado viene de ConsultaNotificaciones via actualizar_portfolio.py
+        const subEstado = m.sub_estado || m.estado_detalle || m.etapa || '';
+        const fechaEstado = m.fecha_estado || m.fecha_cambio || '';
+        estadoHtml = `<div>
+          <span class="badge badge-tramite"><span class="dot"></span>En Trámite</span>
+          ${subEstado
+            ? `<div style="font-size:11px;color:var(--accent);margin-top:3px;font-weight:600">${subEstado}${fechaEstado ? ' <span style=\"color:var(--muted);font-weight:400\">· ' + fechaEstado + '</span>' : ''}</div>`
+            : `<div style="font-size:10px;color:var(--muted);margin-top:2px;font-style:italic">Se actualiza vía API</div>`
+          }
+        </div>`;
+      }
+
+      // Fecha de publicación en boletín
+      // Viene de actualizar_portfolio.py via ConsultaNotificaciones
+      const fechaPub = m.fecha_publicacion || m.publicacion || m.fecha_boletin || '';
+      const esConcedida = m.estado === 'Concedida';
+      const fechaPubHtml = fechaPub
+        ? `<span style="font-size:12px;color:var(--muted)">${fechaPub}</span>`
+        : esConcedida
+          ? `<span style="font-size:11px;color:var(--muted);font-style:italic">—</span>`
+          : `<span style="font-size:11px;color:var(--muted);font-style:italic">Pendiente</span>`;
+
       return `<tr>
         <td style="font-weight:600">${m.denominacion}</td>
         <td><span class="badge badge-clase">${m.clase}</span></td>
-        <td>${estadoBadge}</td>
+        <td>${estadoHtml}</td>
+        <td>${fechaPubHtml}</td>
         <td><a class="acta-link" href="${url}" target="_blank">${m.acta} 🔗</a></td>
         <td style="color:var(--muted);font-size:12px">${m.agente||'—'}</td>
         <td>
@@ -1473,16 +1546,25 @@ async function buscarPorActa() {
           <a href="${url}" target="_blank" style="margin-left:auto;color:var(--accent);font-size:12px;text-decoration:none">🔗 Ver en INPI</a>
         </div>`).join('');
   } else if (enInpi) {
-    out.innerHTML = `<div class="info-box" style="border-color:rgba(79,127,255,.3)">
-      ℹ️ Acta <b>${acta}</b> encontrada en el índice INPI:</div>
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span style="font-weight:700;font-size:15px">${enInpi.denominacion}</span>
-        <span class="badge badge-clase">${enInpi.clase}</span>
-        <span class="badge ${enInpi.estado==='Concedida'?'badge-concedida':'badge-tramite'}">
-          <span class="dot"></span>${enInpi.estado||'—'}</span>
-        <span style="color:var(--muted);font-size:12px">${enInpi.titular||'—'}</span>
-        <a href="${url}" target="_blank" style="margin-left:auto;color:var(--accent);font-size:12px;text-decoration:none">🔗 Ver en INPI</a>
-      </div>`;
+    const m = enInpi;
+    const estadoBadge = m.estado==='Concedida'
+      ? `<span class="badge badge-concedida"><span class="dot"></span>Concedida</span>`
+      : `<div><span class="badge badge-tramite"><span class="dot"></span>En Trámite</span>${m.sub_estado?`<div style="font-size:11px;color:var(--accent);margin-top:3px;font-weight:600">${m.sub_estado}</div>`:''}</div>`;
+    const fechaPub = m.fecha_publicacion||m.publicacion||'';
+    out.innerHTML = `<div class="success-box" style="margin-bottom:12px">ℹ️ Acta <b>${acta}</b> encontrada en el índice INPI</div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>Denominación</th><th>Clase</th><th>Estado</th><th>Fecha publicación</th><th>Titular</th><th>INPI</th>
+        </tr></thead>
+        <tbody><tr>
+          <td style="font-weight:700;font-size:15px">${m.denominacion}</td>
+          <td><span class="badge badge-clase">${m.clase}</span></td>
+          <td>${estadoBadge}</td>
+          <td style="font-size:12px;color:var(--muted)">${fechaPub||'Pendiente'}</td>
+          <td style="font-size:12px;color:var(--muted)">${m.titular||'—'}</td>
+          <td><a href="${url}" target="_blank" style="color:var(--accent);font-size:12px;text-decoration:none">🔗 Ver en INPI</a></td>
+        </tr></tbody>
+      </table></div>`;
   } else {
     out.innerHTML = `<div class="info-box">
       Acta <b>${acta}</b> no encontrada en el portfolio ni en el índice INPI.<br>

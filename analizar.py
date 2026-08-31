@@ -55,50 +55,77 @@ def cargar_portfolio():
 # ── Detectar TODOS los boletines de Marcas Nuevas del miercoles ───
 def detectar_boletines(hoy=None):
     """
-    Calcula el numero estimado de boletin para CUALQUIER miercoles
-    basandose en la referencia: boletin 11067 = 24/06/2026.
-    Luego prueba un rango amplio alrededor del estimado para encontrar
-    TODOS los boletines _3_ (Marcas Nuevas) publicados ese miercoles.
-    Funciona para cualquier fecha futura automaticamente.
+    Detecta los boletines de Marcas Nuevas publicados el miercoles de esta semana.
+    Solo busca un rango acotado (base a base+6) para no capturar semanas anteriores.
+    Referencia: boletin 11067 = miercoles 24/06/2026.
+    Cada miercoles el INPI publica tipicamente entre 1 y 6 boletines consecutivos.
     """
+    from datetime import timedelta
     hoy = hoy or date.today()
 
-    # Calcular el miercoles mas cercano (el de esta semana o el ultimo)
+    # Calcular el miercoles de esta semana
     dia_semana = hoy.weekday()  # 0=lunes, 2=miercoles
     if dia_semana >= 2:
         dias_desde_mie = dia_semana - 2
     else:
         dias_desde_mie = dia_semana + 5
-    miercoles = hoy - __import__('datetime').timedelta(days=dias_desde_mie)
+    miercoles = hoy - timedelta(days=dias_desde_mie)
 
-    # Estimar numero de boletin para ese miercoles
+    # Estimar numero de boletin para ese miercoles exacto
     semanas = round((miercoles - BOLETIN_REF_DATE).days / 7)
     base = BOLETIN_REF_NUM + semanas
-    logging.info(f"Miercoles: {miercoles} — Boletin estimado: #{base}")
+    logging.info(f"Miercoles: {miercoles} — Boletin base estimado: #{base}")
 
     headers = {"User-Agent": "Mozilla/5.0"}
     boletines = []
 
-    # Buscar en rango amplio alrededor del estimado
-    # (puede haber varios boletines por miercoles, con numeros consecutivos)
-    for num in range(base - 8, base + 15):
+    # Buscar SOLO desde base hasta base+6 (max 6 boletines por miercoles)
+    # Si el estimado tiene 1-2 de desfase, empezamos desde base-2
+    for num in range(base - 2, base + 7):
         url = f"https://portaltramites.inpi.gob.ar/Uploads/Boletines/{num}_3_.pdf"
         try:
             r = requests.head(url, headers=headers, timeout=15, allow_redirects=True)
             if r.status_code == 200:
                 boletines.append(num)
                 logging.info(f"  Boletin #{num} ENCONTRADO")
-            else:
-                logging.debug(f"  Boletin #{num} no disponible (HTTP {r.status_code})")
         except Exception as e:
             logging.debug(f"  Boletin #{num} error: {e}")
 
-    if not boletines:
-        logging.warning(f"No se encontraron boletines. Usando estimado #{base}")
-        boletines = [base]
+    # Guardar registro de boletines ya procesados para no repetir
+    procesados_ruta = Path(__file__).parent / "data" / "procesados.json"
+    procesados = []
+    if procesados_ruta.exists():
+        with open(procesados_ruta) as f:
+            procesados = json.load(f)
 
-    logging.info(f"Boletines de Marcas Nuevas detectados: {boletines}")
-    return boletines
+    # Filtrar solo los NO procesados aun
+    boletines_nuevos = [b for b in boletines if str(b) not in procesados]
+
+    if not boletines_nuevos and boletines:
+        logging.info(f"Todos los boletines de esta semana ya fueron procesados: {boletines}")
+        return []
+
+    if not boletines_nuevos:
+        logging.warning(f"No se encontraron boletines nuevos. Usando estimado #{base}")
+        return [base]
+
+    logging.info(f"Boletines nuevos a procesar: {boletines_nuevos}")
+    return boletines_nuevos
+
+
+def marcar_procesados(boletines):
+    """Registra los boletines procesados para no repetirlos."""
+    procesados_ruta = Path(__file__).parent / "data" / "procesados.json"
+    procesados = []
+    if procesados_ruta.exists():
+        with open(procesados_ruta) as f:
+            procesados = json.load(f)
+    for b in boletines:
+        if str(b) not in procesados:
+            procesados.append(str(b))
+    # Mantener solo los ultimos 200 para no crecer indefinidamente
+    with open(procesados_ruta, "w") as f:
+        json.dump(procesados[-200:], f)
 
 # ── Descargar PDF ──────────────────────────────────────────────────
 def descargar(num):
@@ -428,6 +455,8 @@ def main():
 
     # Enviar email
     enviar_email(html, boletines_ok, resultados)
+    # Marcar boletines como procesados para no repetirlos
+    marcar_procesados(boletines_ok)
     logging.info("Proceso completado.")
 
 if __name__ == "__main__":

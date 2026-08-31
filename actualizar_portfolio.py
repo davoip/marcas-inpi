@@ -8,7 +8,7 @@ Hace 4 cosas:
 4. Genera indice de busqueda (data/indice_inpi.json) para busquedas web
 """
 
-import os, json, logging, requests, xml.etree.ElementTree as ET, smtplib
+import os, json, logging, requests, xml.etree.ElementTree as ET
 from datetime import date
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
@@ -224,6 +224,32 @@ def enviar_email(nuevas, novedades_tramites):
         smtp.send_message(msg)
     logging.info(f"Email enviado: {asunto}")
 
+# ── Consultar estado detallado de un tramite ─────────────────────
+def consultar_estado_detallado(acta):
+    """Consulta el estado, sub-estado y fecha de publicacion de una marca."""
+    body = f"""<ConsultaNotificaciones xmlns="http://tempuri.org/">
+      <strCuit>{INPI_CUIT}</strCuit>
+      <strClave>{INPI_KEY}</strClave>
+      <strActa>{acta}</strActa>
+    </ConsultaNotificaciones>"""
+    try:
+        root = soap_call("ConsultaNotificaciones", body)
+        datos = {}
+        for elem in root.iter():
+            tag = elem.tag.split('}')[-1].lower() if '}' in elem.tag else elem.tag.lower()
+            val = (elem.text or '').strip()
+            if not val: continue
+            if any(k in tag for k in ['subestado','sub_estado','etapa','fase','division']):
+                datos['sub_estado'] = val
+            if any(k in tag for k in ['fechaestado','fecha_estado','fechacambio']):
+                datos['fecha_estado'] = val
+            if any(k in tag for k in ['fechapub','fecha_pub','fechaboletin','publicacion']):
+                datos['fecha_publicacion'] = val
+        return datos
+    except Exception as e:
+        logging.debug(f"Error estado detallado acta {acta}: {e}")
+        return {}
+
 # ── Main ───────────────────────────────────────────────────────────
 def main():
     logging.info("="*50)
@@ -255,6 +281,21 @@ def main():
     else:
         logging.info("Sin marcas nuevas.")
 
+    # Actualizar estado detallado de tramites en curso
+    logging.info("Actualizando estado detallado de tramites...")
+    actualizados = 0
+    tramites_activos = [m for m in portfolio
+                       if m.get("estado","").lower() in ("en trámite","en tramite")
+                       and m.get("acta")][:30]  # max 30/dia
+    for m in tramites_activos:
+        datos = consultar_estado_detallado(m["acta"])
+        if datos:
+            m.update(datos)
+            actualizados += 1
+    if actualizados:
+        guardar_json("portfolio.json", portfolio)
+        logging.info(f"Estado detallado actualizado: {actualizados} marcas")
+
     # 2. Consultar novedades en tramites
     novedades_hist = cargar_json("novedades.json", [])
     novedades_hoy = []
@@ -279,7 +320,6 @@ def main():
     generar_indice(portfolio)
 
     # 4. Enviar email si hay novedades
-    enviar_email(nuevas, novedades_hoy)
     logging.info("Proceso completado.")
 
 if __name__ == "__main__":
