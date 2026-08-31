@@ -124,22 +124,11 @@ def consultar_agente(agente):
 
         logging.info(f"  Agente {agente}: {len(marcas)} marcas totales en INPI")
 
-        # Solo devolver las En Tramite Y con fecha de ingreso reciente (ultimos 3 anos)
-        # para no llenar el portfolio con toda la historia del agente
-        from datetime import datetime, timedelta
-        hace_3_anos = datetime.now() - timedelta(days=3*365)
-        recientes = []
-        for m in marcas:
-            if m['estado'] == 'En Tramite':
-                recientes.append(m)
-            elif m.get('fecha_ingreso'):
-                try:
-                    fi = datetime.strptime(m['fecha_ingreso'], '%d/%m/%Y')
-                    if fi >= hace_3_anos:
-                        recientes.append(m)
-                except: pass
-        logging.info(f"  Agente {agente}: {len(recientes)} marcas recientes/en tramite")
-        return recientes
+        # Solo devolver marcas En Tramite
+        # (la API devuelve toda la historia, filtramos solo las activas)
+        en_tramite = [m for m in marcas if m['estado'] == 'En Tramite']
+        logging.info(f"  Agente {agente}: {len(en_tramite)} marcas En Tramite")
+        return en_tramite
 
     except Exception as e:
         logging.error(f"Error agente {agente}: {e}")
@@ -382,10 +371,16 @@ def main():
     # Actualizar estado detallado de tramites en curso
     logging.info("Actualizando estado detallado de tramites...")
     actualizados = 0
+    def es_en_tramite(estado):
+        if not estado: return False
+        e = estado.strip().lower()
+        e = e.replace('\u00e1','a').replace('á','a')  # quitar tildes
+        return 'tramite' in e or e == 'n'
+
     tramites_activos = [m for m in portfolio
-                       if m.get("estado","").strip().lower() in
-                       ("en trámite","en tramite","en tr\u00e1mite","tramite","trámite")
-                       and m.get("acta") and m["acta"] != "—"][:30]
+                       if es_en_tramite(m.get("estado",""))
+                       and m.get("acta") and str(m.get("acta","")) != "\u2014"
+                       and str(m.get("acta","")) != "-"][:30]
     logging.info(f"Tramites activos para actualizar estado: {len(tramites_activos)}")  # max 30/dia
     for m in tramites_activos:
         datos = consultar_estado_detallado(m["acta"])
