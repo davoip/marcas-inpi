@@ -56,6 +56,13 @@ def soap_call(accion, body):
 
 # ── 1. Consultar marcas por agente ────────────────────────────────
 def consultar_agente(agente):
+    """
+    Consulta marcas del agente via ConsultaCuitOTitular.
+    XML real del INPI usa tags ns1:GrillaMarcas con hijos:
+    Acta, Denominacion, Clase, Titulares, Estado (N=tramite, C=concedida),
+    Fecha_Ingreso, Tipo_Marca, Numero_Resolucion
+    Solo trae marcas En Tramite (Estado=N o sin Estado) para detectar novedades.
+    """
     body = f"""<ConsultaCuitOTitular xmlns="http://tempuri.org/">
       <strCuit>{INPI_CUIT}</strCuit>
       <strClave>{INPI_KEY}</strClave>
@@ -63,48 +70,65 @@ def consultar_agente(agente):
     </ConsultaCuitOTitular>"""
     try:
         root = soap_call("ConsultaCuitOTitular", body)
-
-        # DEBUG: mostrar XML completo para entender la estructura
-        import xml.etree.ElementTree as ET2
-        xml_str = ET.tostring(root, encoding='unicode')
-        logging.info(f"XML agente {agente} (primeros 2000 chars):")
-        logging.info(xml_str[:2000])
-
+        ns = 'http://tempuri.org/'
         marcas = []
-        # Intentar todas las variantes posibles de nombres de atributos y tags
-        for elem in root.iter():
-            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
-            # Buscar por atributos
-            acta  = (elem.get('acta') or elem.get('Acta') or elem.get('nroActa') or
-                     elem.get('NroActa') or elem.get('numero') or elem.get('Numero'))
-            den   = (elem.get('denominacion') or elem.get('Denominacion') or
-                     elem.get('nombre') or elem.get('Nombre'))
-            clase = (elem.get('clase') or elem.get('Clase') or
-                     elem.get('nroClase') or elem.get('NroClase'))
-            est   = (elem.get('estado') or elem.get('Estado') or
-                     elem.get('situacion') or elem.get('Situacion'))
-            tit   = (elem.get('titular') or elem.get('Titular') or
-                     elem.get('solicitante') or elem.get('Solicitante', ''))
-            # Buscar tambien por texto del elemento hijo
-            if not acta:
-                for child in elem:
-                    ctag = child.tag.split('}')[-1].lower() if '}' in child.tag else child.tag.lower()
-                    if 'acta' in ctag or 'numero' in ctag: acta = child.text
-                    if 'denom' in ctag or 'nombre' in ctag: den = child.text
-                    if 'clase' in ctag: clase = child.text
-                    if 'estado' in ctag or 'situac' in ctag: est = child.text
-                    if 'titular' in ctag or 'solicit' in ctag: tit = child.text
-            if acta and den:
-                marcas.append({
-                    "acta": str(acta).strip(),
-                    "denominacion": str(den).strip(),
-                    "clase": int(clase) if clase and str(clase).strip().isdigit() else 0,
-                    "estado": str(est).strip() if est else "En Trámite",
-                    "titular": str(tit).strip() if tit else "",
-                    "agente": agente
-                })
-        logging.info(f"  Agente {agente}: {len(marcas)} marcas parseadas")
-        return marcas
+
+        for grilla in root.iter(f'{{{ns}}}GrillaMarcas'):
+            def get(tag):
+                el = grilla.find(f'{{{ns}}}{tag}')
+                return el.text.strip() if el is not None and el.text else ''
+
+            acta  = get('Acta')
+            den   = get('Denominacion')
+            clase = get('Clase')
+            tit   = get('Titulares')
+            est_raw = get('Estado')   # N=tramite, C=concedida, T=caduca, etc
+            fecha = get('Fecha_Ingreso')
+            tipo  = get('Tipo_Marca')
+            resol = get('Numero_Resolucion')
+
+            if not acta or not den:
+                continue
+
+            # Mapear estado
+            estado_map = {
+                'N': 'En Trámite', 'C': 'Concedida', 'T': 'Caducada',
+                'D': 'Denegada', 'A': 'Abandonada', 'S': 'Desistida'
+            }
+            estado = estado_map.get(est_raw, 'En Trámite' if not est_raw else est_raw)
+
+            # Limpiar titular (a veces viene con CUIT adelante: "20123456789  NOMBRE 100.00%")
+            import re
+            tit_clean = re.sub(r'^\d{11}\s+', '', tit)
+            tit_clean = re.sub(r'\s+\d+\.\d+%$', '', tit_clean).strip()
+
+            # Fecha de ingreso formateada
+            fecha_fmt = ''
+            if fecha and 'T' in fecha:
+                try:
+                    from datetime import datetime
+                    fecha_fmt = datetime.fromisoformat(fecha.split('T')[0]).strftime('%d/%m/%Y')
+                except: fecha_fmt = fecha[:10]
+
+            marcas.append({
+                "acta": acta,
+                "denominacion": den,
+                "clase": int(clase) if clase.isdigit() else 0,
+                "estado": estado,
+                "titular": tit_clean,
+                "tipo_marca": tipo,
+                "fecha_ingreso": fecha_fmt,
+                "numero_resolucion": resol,
+                "agente": agente
+            })
+
+        logging.info(f"  Agente {agente}: {len(marcas)} marcas totales en INPI")
+
+        # Solo devolver las En Tramite para detectar novedades
+        en_tramite = [m for m in marcas if m['estado'] == 'En Trámite']
+        logging.info(f"  Agente {agente}: {len(en_tramite)} marcas En Tramite")
+        return en_tramite
+
     except Exception as e:
         logging.error(f"Error agente {agente}: {e}")
         import traceback
@@ -173,13 +197,18 @@ def generar_indice(portfolio):
         "por_titular": {},
         "por_clase": {}
     }
-    # Agrupar por titular
+    # Agrupar por titular — normalizar para busqueda
     for m in portfolio:
         tit = m.get("titular", "").strip()
         if tit:
             if tit not in indice["por_titular"]:
                 indice["por_titular"][tit] = []
             indice["por_titular"][tit].append(m)
+        # También indexar por denominacion para busquedas por nombre
+        den = m.get("denominacion", "").strip()
+        if den:
+            if den not in indice["por_titular"]:
+                indice["por_titular"][den] = []
     # Agrupar por clase
     for m in portfolio:
         cl = str(m.get("clase", ""))
@@ -253,7 +282,10 @@ def enviar_email(nuevas, novedades_tramites):
 
 # ── Consultar estado detallado de un tramite ─────────────────────
 def consultar_estado_detallado(acta):
-    """Consulta el estado, sub-estado y fecha de publicacion de una marca."""
+    """
+    Consulta notificaciones de un tramite para obtener sub-estado y fecha de publicacion.
+    Usa el namespace real del INPI: http://tempuri.org/
+    """
     body = f"""<ConsultaNotificaciones xmlns="http://tempuri.org/">
       <strCuit>{INPI_CUIT}</strCuit>
       <strClave>{INPI_KEY}</strClave>
@@ -261,17 +293,44 @@ def consultar_estado_detallado(acta):
     </ConsultaNotificaciones>"""
     try:
         root = soap_call("ConsultaNotificaciones", body)
+        ns = 'http://tempuri.org/'
         datos = {}
+
+        # Loguear XML para debug en primera ejecucion
+        xml_str = ET.tostring(root, encoding='unicode')
+        if 'GrillaNotificaciones' in xml_str or 'Notificacion' in xml_str:
+            logging.debug(f"Notif acta {acta}: {xml_str[:500]}")
+
+        # Buscar en todos los elementos con el namespace
         for elem in root.iter():
-            tag = elem.tag.split('}')[-1].lower() if '}' in elem.tag else elem.tag.lower()
+            tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
             val = (elem.text or '').strip()
             if not val: continue
-            if any(k in tag for k in ['subestado','sub_estado','etapa','fase','division']):
+
+            tag_l = tag.lower()
+            if any(k in tag_l for k in ['subestado','sub_estado','etapa','fase',
+                                          'division','estado_actual','tiponotif']):
                 datos['sub_estado'] = val
-            if any(k in tag for k in ['fechaestado','fecha_estado','fechacambio']):
-                datos['fecha_estado'] = val
-            if any(k in tag for k in ['fechapub','fecha_pub','fechaboletin','publicacion']):
-                datos['fecha_publicacion'] = val
+            elif any(k in tag_l for k in ['fechaestado','fecha_estado','fechacambio',
+                                            'fecha_cambio','fechanotif','fecha_notif']):
+                # Formatear fecha
+                try:
+                    from datetime import datetime
+                    if 'T' in val:
+                        val = datetime.fromisoformat(val.split('T')[0]).strftime('%d/%m/%Y')
+                    datos['fecha_estado'] = val
+                except: datos['fecha_estado'] = val
+            elif any(k in tag_l for k in ['fechapub','fecha_pub','fechaboletin',
+                                            'fecha_boletin','publicacion','fechaPublicacion']):
+                try:
+                    from datetime import datetime
+                    if 'T' in val:
+                        val = datetime.fromisoformat(val.split('T')[0]).strftime('%d/%m/%Y')
+                    datos['fecha_publicacion'] = val
+                except: datos['fecha_publicacion'] = val
+
+        if datos:
+            logging.debug(f"  Acta {acta} estado: {datos}")
         return datos
     except Exception as e:
         logging.debug(f"Error estado detallado acta {acta}: {e}")
