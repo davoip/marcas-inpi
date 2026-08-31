@@ -92,10 +92,12 @@ def consultar_agente(agente):
 
             # Mapear estado
             estado_map = {
-                'N': 'En Trámite', 'C': 'Concedida', 'T': 'Caducada',
-                'D': 'Denegada', 'A': 'Abandonada', 'S': 'Desistida'
+                'N': 'En Tramite', 'C': 'Concedida', 'T': 'Caducada',
+                'D': 'Denegada', 'A': 'Abandonada', 'S': 'Desistida',
+                'E': 'En Tramite', 'R': 'En Tramite', '': 'En Tramite'
             }
-            estado = estado_map.get(est_raw, 'En Trámite' if not est_raw else est_raw)
+            estado = estado_map.get(est_raw, est_raw if est_raw else 'En Tramite')
+            logging.debug(f"    Estado raw: '{est_raw}' -> '{estado}'")
 
             # Limpiar titular (a veces viene con CUIT adelante: "20123456789  NOMBRE 100.00%")
             import re
@@ -122,11 +124,13 @@ def consultar_agente(agente):
                 "agente": agente
             })
 
+        # Log de valores de Estado encontrados para debug
+        estados_unicos = list(set(m.get('estado','') for m in marcas))
         logging.info(f"  Agente {agente}: {len(marcas)} marcas totales en INPI")
+        logging.info(f"  Estados encontrados: {estados_unicos[:10]}")
 
-        # Solo devolver marcas En Tramite
-        # (la API devuelve toda la historia, filtramos solo las activas)
-        en_tramite = [m for m in marcas if m['estado'] == 'En Tramite']
+        # Solo devolver marcas En Tramite (cualquier variante)
+        en_tramite = [m for m in marcas if m['estado'] in ('En Tramite', 'En Trámite', 'N', 'E', 'R', '')]
         logging.info(f"  Agente {agente}: {len(en_tramite)} marcas En Tramite")
         return en_tramite
 
