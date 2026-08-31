@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python railway_server.py"
+startCommand = "python app.py"
 restartPolicyType = "on_failure"
