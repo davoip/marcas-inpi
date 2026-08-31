@@ -124,10 +124,22 @@ def consultar_agente(agente):
 
         logging.info(f"  Agente {agente}: {len(marcas)} marcas totales en INPI")
 
-        # Solo devolver las En Tramite para detectar novedades
-        en_tramite = [m for m in marcas if m['estado'] == 'En Trámite']
-        logging.info(f"  Agente {agente}: {len(en_tramite)} marcas En Tramite")
-        return en_tramite
+        # Solo devolver las En Tramite Y con fecha de ingreso reciente (ultimos 3 anos)
+        # para no llenar el portfolio con toda la historia del agente
+        from datetime import datetime, timedelta
+        hace_3_anos = datetime.now() - timedelta(days=3*365)
+        recientes = []
+        for m in marcas:
+            if m['estado'] == 'En Tramite':
+                recientes.append(m)
+            elif m.get('fecha_ingreso'):
+                try:
+                    fi = datetime.strptime(m['fecha_ingreso'], '%d/%m/%Y')
+                    if fi >= hace_3_anos:
+                        recientes.append(m)
+                except: pass
+        logging.info(f"  Agente {agente}: {len(recientes)} marcas recientes/en tramite")
+        return recientes
 
     except Exception as e:
         logging.error(f"Error agente {agente}: {e}")
@@ -138,7 +150,7 @@ def consultar_agente(agente):
 # ── 2. Consultar novedades de un tramite ──────────────────────────
 def consultar_notificaciones(acta):
     body = f"""<ConsultaNotificaciones xmlns="http://tempuri.org/">
-      <strCuit>{INPI_CUIT}</strClave>
+      <strCuit>{INPI_CUIT}</strCuit>
       <strClave>{INPI_KEY}</strClave>
       <strActa>{acta}</strActa>
     </ConsultaNotificaciones>"""

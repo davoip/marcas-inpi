@@ -363,20 +363,88 @@ def generar_html(resultados, boletines, fecha_str, total):
 # ── Email ──────────────────────────────────────────────────────────
 def enviar_email(html, boletines, resultados):
     if not APP_PASS:
-        logging.warning("GMAIL_APP_PASSWORD no configurado — email no enviado.")
+        logging.warning("GMAIL_APP_PASSWORD no configurado - email no enviado.")
         return
-    altos = sum(1 for v in resultados.values()
-                if any(a["riesgo"]=="ALTO" for a in v["amenazas"]))
-    nums = "+".join(str(n) for n in boletines)
-    if altos:       asunto = f"[Marcas INPI] {altos} conflicto(s) ALTO(S) — Boletines {nums}"
-    elif resultados:asunto = f"[Marcas INPI] {len(resultados)} conflicto(s) — Boletines {nums}"
-    else:           asunto = f"[Marcas INPI] Sin conflictos — Boletines {nums} OK"
+
+    ORDEN = {"ALTO":0,"MEDIO":1,"BAJO":2}
+    altos  = sum(1 for v in resultados.values() if any(a["riesgo"]=="ALTO" for a in v["amenazas"]))
+    medios = sum(1 for v in resultados.values() if not any(a["riesgo"]=="ALTO" for a in v["amenazas"]) and any(a["riesgo"]=="MEDIO" for a in v["amenazas"]))
+    bajos  = len(resultados) - altos - medios
+    nums   = ", ".join(f"#{n}" for n in boletines)
+    fecha  = date.today().strftime("%d/%m/%Y")
+
+    if altos:        asunto = f"[Marcas INPI] {altos} ALTO(S), {medios} MEDIO(S) - {fecha}"
+    elif resultados: asunto = f"[Marcas INPI] {len(resultados)} conflicto(s) - {fecha}"
+    else:            asunto = f"[Marcas INPI] Sin conflictos - {fecha}"
+
+    # Solo 30 conflictos ALTO y MEDIO en el email (evitar limite de Gmail)
+    items = sorted(resultados.items(),
+        key=lambda x: min(ORDEN[a["riesgo"]] for a in x[1]["amenazas"]))
+    items_email = [(k,v) for k,v in items
+                   if any(a["riesgo"] in ("ALTO","MEDIO") for a in v["amenazas"])][:30]
+
+    filas = ""
+    for key, data in items_email:
+        mi  = data["mi_marca"]
+        top = data["amenazas"][0]
+        c   = {"ALTO":"#ff4d6d","MEDIO":"#ffc93c","BAJO":"#2dd4a0"}[top["riesgo"]]
+        url = "https://portaltramites.inpi.gob.ar/MarcasConsultas/Resultado?acta=" + top["acta"]
+        filas += (
+            '<tr style="border-bottom:1px solid #2e3350">'
+            f'<td style="padding:7px 8px;color:{c};font-weight:700">{top["riesgo"]}</td>'
+            f'<td style="padding:7px 8px;font-weight:600">{mi["denominacion"]}</td>'
+            f'<td style="padding:7px 8px;color:#4f7fff">Cl.{mi["clase"]}</td>'
+            f'<td style="padding:7px 8px;font-weight:600">{top["denominacion"]}</td>'
+            f'<td style="padding:7px 8px;color:#4f7fff">Cl.{top["clase"]}</td>'
+            f'<td style="padding:7px 8px;color:#7b82a8">{top["titular"][:25]}</td>'
+            f'<td style="padding:7px 8px;color:{c};font-weight:700">{top["score"]}%</td>'
+            f'<td style="padding:7px 8px"><a href="{url}" style="color:#4f7fff">Ver</a></td>'
+            '</tr>'
+        )
+
+    omitidos = len(resultados) - len(items_email)
+    nota_omi = f'<p style="color:#7b82a8;font-size:12px;margin:8px 0 0">+ {omitidos} adicionales en la plataforma web.</p>' if omitidos > 0 else ""
+
+    cuerpo = (
+        '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>'
+        '<body style="background:#0f1117;color:#e8eaf6;font-family:system-ui,sans-serif;padding:24px;max-width:900px;margin:0 auto">'
+        '<div style="background:#1a1d27;border:1px solid #2e3350;border-radius:12px;padding:18px;margin-bottom:14px">'
+        f'<h1 style="margin:0 0 4px;font-size:19px">Vigilancia Marcaria INPI - {fecha}</h1>'
+        f'<p style="color:#7b82a8;margin:0;font-size:13px">Boletines: {nums}</p>'
+        '</div>'
+        '<div style="display:flex;gap:10px;margin-bottom:14px">'
+        f'<div style="flex:1;background:rgba(255,77,109,.06);border:1px solid #ff4d6d44;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#7b82a8">ALTO</div><div style="font-size:24px;font-weight:800;color:#ff4d6d">{altos}</div></div>'
+        f'<div style="flex:1;background:rgba(255,201,60,.04);border:1px solid #ffc93c44;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#7b82a8">MEDIO</div><div style="font-size:24px;font-weight:800;color:#ffc93c">{medios}</div></div>'
+        f'<div style="flex:1;background:rgba(45,212,160,.03);border:1px solid #2dd4a044;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#7b82a8">BAJO</div><div style="font-size:24px;font-weight:800;color:#2dd4a0">{bajos}</div></div>'
+        f'<div style="flex:1;background:#1a1d27;border:1px solid #2e3350;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#7b82a8">TOTAL</div><div style="font-size:24px;font-weight:800">{len(resultados)}</div></div>'
+        '</div>'
+        '<div style="background:#1a1d27;border:1px solid #2e3350;border-radius:8px;overflow:hidden">'
+        '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+        '<thead><tr style="background:#22263a">'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">Riesgo</th>'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">Mi Marca</th>'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">Cl.</th>'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">En Boletin</th>'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">Cl.</th>'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">Titular</th>'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">Sim.</th>'
+        '<th style="padding:5px 8px;text-align:left;color:#7b82a8;font-size:10px">INPI</th>'
+        '</tr></thead>'
+        f'<tbody>{filas if filas else "<tr><td colspan=8 style=padding:20px;text-align:center;color:#7b82a8>Sin conflictos detectados</td></tr>"}</tbody>'
+        '</table>'
+        '</div>'
+        f'{nota_omi}'
+        '<p style="color:#7b82a8;font-size:11px;text-align:center;margin-top:14px">'
+        'Reporte completo: davoip.github.io/marcas-inpi'
+        '</p>'
+        '</body></html>'
+    )
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = asunto
-    msg["From"] = EMAIL
-    msg["To"]   = EMAIL
-    msg.attach(MIMEText(html, "html", "utf-8"))
+    msg["From"]    = EMAIL
+    msg["To"]      = EMAIL
+    msg.attach(MIMEText(cuerpo, "html", "utf-8"))
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL, APP_PASS)
         smtp.send_message(msg)
@@ -413,6 +481,18 @@ def main():
     logging.info("=" * 50)
     logging.info("VIGILANCIA MARCARIA INPI")
     logging.info("=" * 50)
+
+    # Solo corre los miercoles (weekday() == 2)
+    # Usar FORZAR_VIGILANCIA=true para ejecutar manualmente cualquier dia
+    hoy = date.today()
+    es_miercoles = hoy.weekday() == 2
+    forzar = os.environ.get("FORZAR_VIGILANCIA", "").lower() == "true"
+
+    if not es_miercoles and not forzar:
+        logging.info(f"Hoy es {hoy.strftime('%A %d/%m/%Y')} — no es miercoles. Sin accion.")
+        return
+
+    logging.info(f"Ejecutando vigilancia del {hoy.strftime('%d/%m/%Y')}")
 
     portfolio = cargar_portfolio()
     logging.info(f"Portfolio: {len(portfolio)} marcas")
