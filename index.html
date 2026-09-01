@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estudio Davo · Gestión Marcaria INPI</title>
+<style>
+:root{
+  --bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;
+  --border:#2e3350;--accent:#4f7fff;--text:#e8eaf6;--muted:#7b82a8;
+  --red:#ff4d6d;--yellow:#ffc93c;--green:#2dd4a0;
+  --red-bg:rgba(255,77,109,.07);--yellow-bg:rgba(255,201,60,.06);--green-bg:rgba(45,212,160,.05);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px;min-height:100vh}
+.shell{display:grid;grid-template-columns:220px 1fr;grid-template-rows:56px 1fr;min-height:100vh}
+.topbar{grid-column:1/-1;background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 24px;gap:12px}
+.logo{font-weight:700;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.logo span{color:var(--muted);font-weight:400}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:20px 0}
+.nav-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);padding:0 18px 8px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 18px;cursor:pointer;
+  color:var(--muted);border-left:3px solid transparent;transition:all .15s;font-size:13px}
+.nav-item:hover{color:var(--text);background:var(--surface2)}
+.nav-item.active{color:var(--accent);border-left-color:var(--accent);background:rgba(79,127,255,.07)}
+main{overflow-y:auto;padding:28px 32px}
+.section{display:none}.section.active{display:block}
+.page-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px}
+.page-title{font-size:20px;font-weight:700}
+.page-subtitle{color:var(--muted);font-size:13px;margin-top:4px}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:7px;
+  font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s;font-family:inherit}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#3d6ef0}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text);border-color:var(--muted)}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:5px}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px}
+.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+.stat-value{font-size:28px;font-weight:800;margin-top:6px}
+.info-box{background:rgba(79,127,255,.07);border:1px solid rgba(79,127,255,.2);
+  border-radius:8px;padding:12px 16px;font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.6}
+.info-box b{color:var(--text)}.info-box a{color:var(--accent)}
+.warn-box{background:var(--yellow-bg);border:1px solid rgba(255,201,60,.3);
+  border-radius:8px;padding:12px 16px;font-size:12px;color:var(--yellow);margin-bottom:18px}
+.success-box{background:var(--green-bg);border:1px solid rgba(45,212,160,.3);
+  border-radius:8px;padding:12px 16px;font-size:12px;color:var(--green);margin-bottom:18px}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+thead th{background:var(--surface2);padding:10px 14px;text-align:left;font-size:11px;
+  font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  border-bottom:1px solid var(--border);white-space:nowrap}
+thead th.sortable{cursor:pointer;user-select:none}
+thead th.sortable:hover{color:var(--text)}
+tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--surface2)}
+td{padding:10px 14px;vertical-align:middle}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;
+  border-radius:12px;font-weight:600;white-space:nowrap}
+.badge-clase{background:var(--surface2);border:1px solid var(--border);color:var(--accent);
+  width:28px;height:20px;justify-content:center;border-radius:4px}
+.badge-concedida{background:var(--green-bg);color:var(--green)}
+.badge-tramite{background:var(--yellow-bg);color:var(--yellow)}
+.dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.acta-link{color:var(--accent);text-decoration:none;font-size:12px}
+.acta-link:hover{text-decoration:underline}
+.search-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+.search-row input,.search-row select{background:var(--surface);border:1px solid var(--border);
+  color:var(--text);border-radius:7px;padding:8px 12px;font-size:13px;outline:none;font-family:inherit}
+.search-row input:focus,.search-row select:focus{border-color:var(--accent)}
+.search-row input{flex:1;min-width:200px}
+.pagination{display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+.pagination button{background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  padding:5px 12px;border-radius:5px;cursor:pointer;font-size:12px}
+.pagination button:disabled{opacity:.4;cursor:default}
+.upload-zone{border:2px dashed var(--border);border-radius:10px;padding:28px;
+  text-align:center;cursor:pointer;transition:all .15s;color:var(--muted)}
+.upload-zone:hover{border-color:var(--accent);background:rgba(79,127,255,.05);color:var(--text)}
+.riesgo-alto{background:var(--red-bg);color:var(--red);border:1px solid rgba(255,77,109,.3);
+  font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 10px;border-radius:20px;white-space:nowrap}
+.riesgo-medio{background:var(--yellow-bg);color:var(--yellow);border:1px solid rgba(255,201,60,.3);
+  font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 10px;border-radius:20px;white-space:nowrap}
+.riesgo-bajo{background:var(--green-bg);color:var(--green);border:1px solid rgba(45,212,160,.3);
+  font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 10px;border-radius:20px;white-space:nowrap}
+.result-card{border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden}
+.card-header{display:flex;align-items:center;padding:12px 16px;gap:10px;cursor:pointer}
+.card-header:hover{opacity:.85}
+.card-body{display:none;padding:0 16px 14px;border-top:1px solid var(--border)}
+.card-body.open{display:block}
+.comp-grid{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:start;padding:12px 0}
+.comp-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px}
+.comp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px}
+.comp-name{font-size:14px;font-weight:700}
+.comp-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.score-bar-wrap{display:flex;align-items:center;gap:10px;margin-top:8px}
+.score-bar{flex:1;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden}
+.score-fill{height:100%;border-radius:3px}
+.loading{display:flex;align-items:center;gap:10px;padding:20px;color:var(--muted);font-size:13px}
+.spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:48px;color:var(--muted)}
+.empty-icon{font-size:36px;margin-bottom:10px}
+.empty-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;
+  align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:28px;width:480px;max-width:95vw}
+.modal h3{font-size:16px;margin-bottom:20px}
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;
+  font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.form-row input,.form-row select{width:100%;background:var(--bg);border:1px solid var(--border);
+  color:var(--text);border-radius:7px;padding:9px 12px;font-size:13px;font-family:inherit;outline:none}
+.form-row input:focus,.form-row select:focus{border-color:var(--accent)}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+.viab-form{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:20px}
+.viab-form h3{font-size:15px;font-weight:700;margin-bottom:16px}
+.clases-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.clase-chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface2);
+  border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;
+  cursor:pointer;color:var(--muted);transition:all .15s}
+.clase-chip.sel{background:rgba(79,127,255,.15);border-color:var(--accent);color:var(--accent)}
+@media(max-width:768px){
+  .shell{grid-template-columns:1fr;grid-template-rows:56px auto 1fr}
+  .sidebar{display:flex;overflow-x:auto;padding:8px 0;border-right:none;border-bottom:1px solid var(--border)}
+  .nav-item{white-space:nowrap;border-left:none;border-bottom:3px solid transparent}
+  .nav-item.active{border-left:none;border-bottom-color:var(--accent)}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  main{padding:16px}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header class="topbar">
+  <div class="logo">Estudio Davo <span>· Gestión Marcaria INPI</span></div>
+</header>
+
+<nav class="sidebar">
+  <div class="nav-label">Módulos</div>
+  <div class="nav-item active" onclick="showSection('portfolio',this)">
+    <span>📋</span> Portfolio
+  </div>
+  <div class="nav-item" onclick="showSection('vigilancia',this)">
+    <span>🔍</span> Vigilancia Semanal
+  </div>
+
+</nav>
+
+<main>
+
+<!-- ══════════ PORTFOLIO ══════════ -->
+<div class="section active" id="sec-portfolio">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Portfolio de Marcas</div>
+      <div class="page-subtitle">Gestión manual del portfolio · Carga por Excel/CSV</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
+        <input type="checkbox" id="ocultar-concedidas" onchange="renderPortfolio()"
+          style="accent-color:var(--accent)"> Ocultar concedidas
+      </label>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('file-import').click()">
+        📁 Importar Excel/CSV
+      </button>
+      <button class="btn btn-primary" onclick="openModal()">+ Agregar Marca</button>
+    </div>
+  </div>
+
+  <input type="file" id="file-import" accept=".xlsx,.xls,.csv" style="display:none" onchange="importarArchivo(this)">
+
+  <div class="stats-grid" id="port-stats"></div>
+
+  <div id="import-result" style="margin-bottom:12px"></div>
+
+  <div class="search-row">
+    <input type="text" id="port-search" placeholder="Buscar denominación..." oninput="renderPortfolio()">
+    <select id="port-clase" onchange="renderPortfolio()">
+      <option value="">Todas las clases</option>
+    </select>
+    <select id="port-estado" onchange="renderPortfolio()">
+      <option value="">Todos los estados</option>
+      <option value="Concedida">Concedida</option>
+      <option value="En Trámite">En Trámite</option>
+    </select>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th class="sortable" onclick="sortPort('denominacion')">
+          Denominación <span id="s-denominacion">↕</span></th>
+        <th class="sortable" onclick="sortPort('clase')">
+          Clase <span id="s-clase">↕</span></th>
+        <th>Estado</th>
+        <th class="sortable" onclick="sortPort('acta')">
+          Acta <span id="s-acta">↕</span></th>
+        <th>Vencimiento</th>
+        <th>Acciones</th>
+      </tr></thead>
+      <tbody id="port-tbody"></tbody>
+    </table>
+    <div class="pagination">
+      <span id="port-info"></span>
+      <div style="display:flex;gap:8px">
+        <button id="port-prev" onclick="changePage(-1)">← Anterior</button>
+        <button id="port-next" onclick="changePage(1)">Siguiente →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ VIGILANCIA SEMANAL ══════════ -->
+<div class="section" id="sec-vigilancia">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Vigilancia Semanal de Boletines</div>
+      <div class="page-subtitle">Análisis automático cada miércoles · criterios Otamendi + OMPI</div>
+    </div>
+    <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+      📁 Subir PDF manualmente
+      <input type="file" accept=".pdf" style="display:none" onchange="vigilanciaConPDF(this)">
+    </label>
+  </div>
+
+  <div class="info-box">
+    <b>Automatización:</b> Cada miércoles a las 12:00 (Argentina) el sistema descarga todos los boletines
+    de Marcas Nuevas del INPI, analiza similitudes contra tu portfolio y envía un email a
+    <b>estudiodavo@gmail.com</b>. El reporte queda disponible acá abajo.
+  </div>
+
+  <!-- Historial de reportes -->
+  <div id="vig-historial" style="margin-bottom:20px"></div>
+
+  <!-- Análisis manual con PDF -->
+  <div id="vig-output">
+    <div class="empty">
+      <div class="empty-icon">📊</div>
+      <div class="empty-title">Esperando boletín</div>
+      <div>El próximo análisis automático es el miércoles a las 12:00. También podés subir un PDF manualmente.</div>
+    </div>
+  </div>
+</div>
+
+
+
+</main>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-title">Agregar Marca</h3>
+    <div class="form-row">
+      <label>Denominación *</label>
+      <input type="text" id="f-den" oninput="this.value=this.value.toUpperCase()">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-row">
+        <label>Clase Niza *</label>
+        <select id="f-clase"></select>
+      </div>
+      <div class="form-row">
+        <label>Estado</label>
+        <select id="f-estado">
+          <option value="En Trámite">En Trámite</option>
+          <option value="Concedida">Concedida</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-row">
+        <label>N° Acta</label>
+        <input type="text" id="f-acta" placeholder="ej: 4702043">
+      </div>
+      <div class="form-row">
+        <label>Vencimiento</label>
+        <input type="text" id="f-venc" placeholder="ej: 25/08/2036">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarMarca()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONSTANTES
+// ═══════════════════════════════════════════════
+const CLASE_NOMBRES = {
+  1:'Químicos',2:'Pinturas',3:'Cosméticos',4:'Aceites',5:'Farmacéuticos',
+  6:'Metales comunes',7:'Maquinaria',8:'Herramientas',9:'Electrónica/Software',
+  10:'Instrumentos médicos',11:'Iluminación',12:'Vehículos',13:'Armas',
+  14:'Joyería',15:'Instrumentos musicales',16:'Papel/Impresos',17:'Plásticos',
+  18:'Cuero/Viaje',19:'Construcción',20:'Muebles',21:'Utensilios',22:'Cuerdas',
+  23:'Hilos',24:'Telas',25:'Ropa/Calzado',26:'Encajes',27:'Alfombras',
+  28:'Juegos/Juguetes',29:'Alimentos procesados',30:'Panadería/Condimentos',
+  31:'Agrícola',32:'Cervezas/Bebidas NA',33:'Bebidas alcohólicas',34:'Tabaco',
+  35:'Publicidad/Comercio',36:'Seguros/Finanzas',37:'Construcción/Rep.',
+  38:'Telecomunicaciones',39:'Transporte',40:'Tratamiento materiales',
+  41:'Educación/Entretenimiento',42:'Servicios tecnológicos',43:'Restauración',
+  44:'Servicios médicos',45:'Servicios jurídicos'
+};
+
+const CLASES_VINCULADAS = {
+  29:[30,31,43],30:[29,31,43],31:[29,30],32:[33,43],33:[32,43],43:[29,30,32,33],
+  35:[36,42,38],36:[35,42],42:[35,36,9,40],9:[42,35,38],38:[41,42,35],40:[42,37],
+  25:[18,28,24],18:[25,14],28:[25,41],41:[35,38,42,28],
+  44:[45,35,42],5:[44,3,31],11:[20,21,19],20:[11,21,19],21:[11,20],
+  19:[37,20,40],37:[19,40,42],14:[25,18,35],45:[35,42,36,44],16:[41,35,9],
+};
+
+const TERMINOS_DEBILES = new Set([
+  'SERVICIOS','PRODUCTOS','GRUPO','ESTUDIO','EMPRESA','CENTRO','CLUB',
+  'DIGITAL','TECH','NET','WEB','ONLINE','GLOBAL','ARGENTINA',
+  'COMERCIAL','INDUSTRIAL','NACIONAL','SUPER','MEGA','MAX','PLUS','PRO',
+  'PREMIUM','ELITE','MASTER','GYM','FITNESS','SPORT','HOME','SHOP',
+  'STORE','MARKET','EXPRESS','TOTAL','REAL','NUEVA','NUEVO','GRAN','GRANDE'
+]);
+
+// ═══════════════════════════════════════════════
+// PORTFOLIO INICIAL
+// ═══════════════════════════════════════════════
+const PORTFOLIO_INICIAL = [
+  {denominacion:'BARSATEX',clase:42,estado:'En Trámite',acta:'4702043'},
+  {denominacion:'BARSATEX',clase:36,estado:'En Trámite',acta:'4702042'},
+  {denominacion:'BARSATEX',clase:35,estado:'En Trámite',acta:'4702041'},
+  {denominacion:'BARSATEX',clase:9,estado:'En Trámite',acta:'4702040'},
+  {denominacion:'ANTICIPO FINANCE',clase:42,estado:'En Trámite',acta:'4635052'},
+  {denominacion:'ANTICIPO FINANCE',clase:36,estado:'En Trámite',acta:'4635051'},
+  {denominacion:'ANTICIPO FINANCE',clase:35,estado:'En Trámite',acta:'4635050'},
+  {denominacion:'ANTICIPO FINANCE',clase:9,estado:'En Trámite',acta:'4635049'},
+  {denominacion:'PRUTOPIA',clase:42,estado:'Concedida',acta:'4248762'},
+  {denominacion:'PRUTOPIA',clase:36,estado:'Concedida',acta:'4248761'},
+  {denominacion:'PRUTOPIA',clase:35,estado:'Concedida',acta:'4248760'},
+  {denominacion:'IMAGINÓPOLIS',clase:35,estado:'Concedida',acta:'4588427'},
+  {denominacion:'DON GOYO CHARCUTERÍA ARTESANAL',clase:29,estado:'Concedida',acta:'4542921'},
+  {denominacion:'PATRÓN CHARCUTERIA',clase:29,estado:'Concedida',acta:'4308302'},
+  {denominacion:'KIVA',clase:20,estado:'Concedida',acta:'4511170'},
+  {denominacion:'WE PRINT',clase:42,estado:'Concedida',acta:'4236640'},
+  {denominacion:'WE PRINT',clase:40,estado:'Concedida',acta:'4236639'},
+  {denominacion:'WE PRINT',clase:35,estado:'Concedida',acta:'4236638'},
+  {denominacion:'BAMBÚ GYM',clase:41,estado:'Concedida',acta:'4235752'},
+  {denominacion:'MEERKAT',clase:25,estado:'Concedida',acta:'4363663'},
+  {denominacion:'MEERKAT',clase:22,estado:'Concedida',acta:'4363672'},
+  {denominacion:'MEERKAT',clase:21,estado:'Concedida',acta:'4363673'},
+  {denominacion:'MEERKAT',clase:20,estado:'Concedida',acta:'4363671'},
+  {denominacion:'MEERKAT',clase:18,estado:'Concedida',acta:'4363670'},
+  {denominacion:'MEERKAT',clase:11,estado:'Concedida',acta:'4363669'},
+  {denominacion:'SEEDS',clase:41,estado:'Concedida',acta:'4409579'},
+  {denominacion:'SEMILLA',clase:43,estado:'Concedida',acta:'4383455'},
+  {denominacion:'BONGUSTO',clase:30,estado:'Concedida',acta:'4293233'},
+  {denominacion:'BORÉ',clase:42,estado:'Concedida',acta:'4401031'},
+  {denominacion:'BORÉ',clase:35,estado:'Concedida',acta:'4401030'},
+  {denominacion:'DUXIO',clase:35,estado:'Concedida',acta:'4416239'},
+  {denominacion:'CALYPSO',clase:36,estado:'Concedida',acta:'3384758'},
+  {denominacion:'ABADÍA CERVEZA ARTESANAL',clase:32,estado:'Concedida',acta:'3827300'},
+  {denominacion:'PENSAMIENTOS LITERARIOS',clase:41,estado:'Concedida',acta:'4077174'},
+  {denominacion:'PENSAMIENTOS LITERARIOS',clase:35,estado:'Concedida',acta:'4077173'},
+  {denominacion:'PENSAMIENTOS LITERARIOS',clase:38,estado:'Concedida',acta:'4590646'},
+  {denominacion:'WONDER GATE',clase:41,estado:'Concedida',acta:'4164559'},
+  {denominacion:'RUGBY ARENA',clase:28,estado:'Concedida',acta:'4021050'},
+  {denominacion:'RUGBY ARENA',clase:9,estado:'Concedida',acta:'4021049'},
+  {denominacion:'TAUDA',clase:41,estado:'Concedida',acta:'4449374'},
+  {denominacion:'TAUDA',clase:35,estado:'Concedida',acta:'4449373'},
+  {denominacion:'MIL MODOS',clase:33,estado:'Concedida',acta:'4437098'},
+  {denominacion:'GRUPO LUX',clase:11,estado:'Concedida',acta:'4475403'},
+  {denominacion:'LUX HOME',clase:35,estado:'En Trámite',acta:'4421302'},
+  {denominacion:'NEXUS ELECTRONICS',clase:11,estado:'Concedida',acta:'4434747'},
+  {denominacion:'DIUTIN',clase:5,estado:'Concedida',acta:'4352294'},
+  {denominacion:'ALMO',clase:44,estado:'Concedida',acta:'4344891'},
+  {denominacion:'AZULÉ',clase:44,estado:'Concedida',acta:'4372472'},
+  {denominacion:'CLETA',clase:35,estado:'Concedida',acta:'4409376'},
+  {denominacion:'BASTIÓN LIBROS & CO',clase:35,estado:'Concedida',acta:'4470888'},
+  {denominacion:'AGENDATE EVENTOS',clase:38,estado:'Concedida',acta:'4450936'},
+  {denominacion:'AGENDATE AGENCIA',clase:35,estado:'Concedida',acta:'4450935'},
+  {denominacion:'INKORA',clase:35,estado:'Concedida',acta:'4366239'},
+  {denominacion:'MARITA',clase:30,estado:'Concedida',acta:'4135685'},
+  {denominacion:'TIERRA DE PAZ',clase:45,estado:'Concedida',acta:'4115170'},
+  {denominacion:'LA DOBLE QUESO!',clase:30,estado:'Concedida',acta:'4093906'},
+  {denominacion:'LA PARTIDA',clase:30,estado:'Concedida',acta:'4029492'},
+  {denominacion:'SUSURRO NATIVO',clase:30,estado:'Concedida',acta:'3914469'},
+  {denominacion:'PARQUE DEL CONOCIMIENTO',clase:35,estado:'Concedida',acta:'3913836'},
+  {denominacion:'PARQUE DEL CONOCIMIENTO',clase:41,estado:'Concedida',acta:'3913833'},
+  {denominacion:'TOTAL CONCRETO',clase:35,estado:'Concedida',acta:'3879030'},
+  {denominacion:'TOTAL CONCRETO',clase:41,estado:'Concedida',acta:'3879033'},
+  {denominacion:'TOTAL CONCRETO',clase:37,estado:'Concedida',acta:'3879032'},
+  {denominacion:'TOTAL CONCRETO',clase:36,estado:'Concedida',acta:'3879031'},
+  {denominacion:'BONS',clase:35,estado:'Concedida',acta:'4096216'},
+  {denominacion:'IMPELER',clase:35,estado:'Concedida',acta:'4204552'},
+  {denominacion:'TORESCO',clase:43,estado:'Concedida',acta:'4194615'},
+  {denominacion:'MEC MUJERES EN CRYPTO',clase:41,estado:'En Trámite',acta:'4175152'},
+  {denominacion:'POZZISTUDIO',clase:35,estado:'Concedida',acta:'4122995'},
+  {denominacion:'Z ZENNON BUSINESS INTELLIGENCE',clase:42,estado:'Concedida',acta:'4423168'},
+  {denominacion:'LIMBER',clase:25,estado:'Concedida',acta:'4272691'},
+  {denominacion:'SACIO',clase:43,estado:'Concedida',acta:'4297116'},
+  {denominacion:'SACIO',clase:30,estado:'Concedida',acta:'4297114'},
+  {denominacion:'SACIO',clase:29,estado:'Concedida',acta:'4297113'},
+  {denominacion:'LABAU',clase:44,estado:'Concedida',acta:'4296041'},
+  {denominacion:'CANDRÁ',clase:44,estado:'Concedida',acta:'4251416'},
+  {denominacion:'TERRUÑO REFUGIO CREATIVO',clase:42,estado:'Concedida',acta:'4470155'},
+  {denominacion:'PLU MANAGEMENT',clase:35,estado:'Concedida',acta:'4417544'},
+  {denominacion:'AVENTINA',clase:30,estado:'Concedida',acta:'4414568'},
+  {denominacion:'BOROS',clase:43,estado:'Concedida',acta:'4406465'},
+  {denominacion:'TRUE JESUS CHURCH',clase:45,estado:'Concedida',acta:'3996833'},
+  {denominacion:'TRUE JESUS CHURCH',clase:41,estado:'Concedida',acta:'3996828'},
+  {denominacion:'PILLO PANCHERÍA',clase:43,estado:'En Trámite',acta:'4672037'},
+  {denominacion:'A SPORTIVO AVELLANEDA',clase:41,estado:'Concedida',acta:'4612037'},
+  {denominacion:'EMANA',clase:37,estado:'Concedida',acta:'4435709'},
+  {denominacion:'TRIBU',clase:20,estado:'En Trámite',acta:'4478010'},
+  {denominacion:'ORGÁNICA 24/7',clase:30,estado:'En Trámite',acta:'4494717'},
+  {denominacion:'PRINT POINT',clase:42,estado:'Concedida',acta:'4510389'},
+  {denominacion:'PRINT POINT',clase:40,estado:'Concedida',acta:'4510388'},
+];
+
+// ═══════════════════════════════════════════════
+// ESTADO
+// ═══════════════════════════════════════════════
+let portfolio = [];
+let editIdx = null;
+let portPage = 1;
+const PAGE_SIZE = 25;
+let portFiltered = [];
+let sortCol = 'denominacion';
+let sortDir = 'asc';
+
+// ═══════════════════════════════════════════════
+// NAVEGACIÓN
+// ═══════════════════════════════════════════════
+function showSection(id, el) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('sec-'+id).classList.add('active');
+  if(el) el.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════
+// PORTFOLIO — PERSISTENCIA
+// ═══════════════════════════════════════════════
+function savePort() {
+  try { localStorage.setItem('ed_portfolio_v2', JSON.stringify(portfolio)); } catch(e){}
+}
+function loadPort() {
+  try {
+    const s = localStorage.getItem('ed_portfolio_v2');
+    if(s) { const p=JSON.parse(s); if(p&&p.length) return p; }
+  } catch(e){}
+  return [...PORTFOLIO_INICIAL];
+}
+
+// ═══════════════════════════════════════════════
+// PORTFOLIO — IMPORTAR
+// ═══════════════════════════════════════════════
+function importarArchivo(input) {
+  const file = input.files[0];
+  if(!file) return;
+  const res = document.getElementById('import-result');
+  res.innerHTML='<div class="loading"><div class="spinner"></div> Procesando '+file.name+'...</div>';
+
+  if(!window.XLSX){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>procesarExcel(file,res);
+    s.onerror=()=>{res.innerHTML='<div class="warn-box">Error al cargar lector de Excel.</div>';};
+    document.head.appendChild(s);
+  } else {
+    procesarExcel(file,res);
+  }
+  input.value='';
+}
+
+function procesarExcel(file, res){
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try {
+      const wb = XLSX.read(e.target.result, {type:'array', cellDates:true, dateNF:'dd/mm/yyyy'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const filas = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false, dateNF:'dd/mm/yyyy'});
+
+      // Encontrar fila de headers (la que tiene "Acta")
+      let hi = -1;
+      for(let i=0;i<Math.min(5,filas.length);i++){
+        if(filas[i].some(c=>String(c).trim().toLowerCase()==='acta')){ hi=i; break; }
+      }
+      if(hi===-1){ res.innerHTML='<div class="warn-box">No se encontró columna "Acta".</div>'; return; }
+
+      const headers = filas[hi].map(c=>String(c).trim().toLowerCase());
+      const iA = headers.indexOf('acta');
+      const iD = headers.findIndex(c=>c.includes('denom')||c.includes('busca'));
+      const iC = headers.findIndex(c=>c==='clase'||c==='cl');
+      const iE = headers.findIndex(c=>c.includes('estado'));
+      const iV = headers.findIndex(c=>c.includes('vencim'));
+
+      if(iA<0||iD<0||iC<0){ 
+        res.innerHTML=`<div class="warn-box">Columnas requeridas no encontradas. Headers: ${headers.join(' | ')}</div>`; 
+        return; 
+      }
+
+      const actasExist = new Set(portfolio.map(m=>String(m.acta)));
+      let nuevas=0, repetidas=0;
+
+      for(let r=hi+1; r<filas.length; r++){
+        const row = filas[r];
+        const acta = String(row[iA]||'').trim();
+        const den  = String(row[iD]||'').trim();
+        const cl   = parseInt(row[iC]);
+        const est  = String(row[iE]||'').trim();
+        const venc = iV>=0 ? String(row[iV]||'').trim() : '';
+
+        if(!den || !cl || isNaN(cl)) continue;
+        if(acta && actasExist.has(acta)){ repetidas++; continue; }
+
+        const m = {
+          denominacion: den.toUpperCase(),
+          clase: cl,
+          estado: est.toLowerCase().includes('conc') ? 'Concedida' : 'En Trámite',
+          acta: acta||'—'
+        };
+        if(venc) m.vencimiento = venc;
+
+        portfolio.push(m);
+        if(acta) actasExist.add(acta);
+        nuevas++;
+      }
+
+      savePort();
+      res.innerHTML=`<div class="success-box">✅ ${nuevas} marcas nuevas · ${repetidas} duplicadas omitidas.</div>`;
+      setTimeout(()=>renderAll(), 50);
+    } catch(err){
+      res.innerHTML=`<div class="warn-box">Error: ${err.message}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ═══════════════════════════════════════════════
+// PORTFOLIO — RENDER
+// ═══════════════════════════════════════════════
+function renderStats() {
+  const c = portfolio.filter(m=>m.estado==='Concedida').length;
+  const t = portfolio.filter(m=>m.estado==='En Trámite').length;
+  const cl = new Set(portfolio.map(m=>m.clase)).size;
+  document.getElementById('port-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Total marcas</div>
+      <div class="stat-value" style="color:var(--accent)">${portfolio.length}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px">${cl} clases Niza</div></div>
+    <div class="stat-card" style="border-color:rgba(45,212,160,.3);background:rgba(45,212,160,.03)">
+      <div class="stat-label">Concedidas</div>
+      <div class="stat-value" style="color:var(--green)">${c}</div></div>
+    <div class="stat-card" style="border-color:rgba(255,201,60,.3);background:rgba(255,201,60,.03)">
+      <div class="stat-label">En Trámite</div>
+      <div class="stat-value" style="color:var(--yellow)">${t}</div></div>`;
+}
+
+function sortPort(col) {
+  if(sortCol===col) sortDir=sortDir==='asc'?'desc':'asc';
+  else { sortCol=col; sortDir='asc'; }
+  ['denominacion','clase','acta'].forEach(c=>{
+    const el=document.getElementById('s-'+c);
+    if(el) el.textContent=c===col?(sortDir==='asc'?'↑':'↓'):'↕';
+  });
+  portPage=1; renderPortfolio();
+}
+
+function renderPortfolio() {
+  const q=(document.getElementById('port-search').value||'').toUpperCase();
+  const fc=document.getElementById('port-clase').value;
+  const fe=document.getElementById('port-estado').value;
+  const oc=document.getElementById('ocultar-concedidas')?.checked;
+
+  portFiltered = portfolio.map((m,i)=>({m,i})).filter(({m})=>{
+    if(q && !m.denominacion.toUpperCase().includes(q)) return false;
+    if(fc && String(m.clase)!==fc) return false;
+    if(fe && m.estado!==fe) return false;
+    if(oc && m.estado==='Concedida') return false;
+    return true;
+  }).map(({i})=>i);
+
+  portFiltered.sort((a,b)=>{
+    const ma=portfolio[a], mb=portfolio[b];
+    if(sortCol==='clase') return sortDir==='asc'?ma.clase-mb.clase:mb.clase-ma.clase;
+    if(sortCol==='acta') return sortDir==='asc'?parseInt(ma.acta)-parseInt(mb.acta):parseInt(mb.acta)-parseInt(ma.acta);
+    const va=ma.denominacion.toUpperCase(), vb=mb.denominacion.toUpperCase();
+    return sortDir==='asc'?va.localeCompare(vb):vb.localeCompare(va);
+  });
+
+  const total=portFiltered.length;
+  const totalPages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+  if(portPage>totalPages) portPage=1;
+  const items=portFiltered.slice((portPage-1)*PAGE_SIZE, portPage*PAGE_SIZE);
+
+  const tbody=document.getElementById('port-tbody');
+  if(!items.length){
+    tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--muted)">Sin resultados</td></tr>';
+  } else {
+    tbody.innerHTML=items.map(i=>{
+      const m=portfolio[i];
+      const url=`https://portaltramites.inpi.gob.ar/MarcasConsultas/Resultado?acta=${m.acta}`;
+      const badge=m.estado==='Concedida'
+        ?`<span class="badge badge-concedida"><span class="dot"></span>Concedida</span>`
+        :`<span class="badge badge-tramite"><span class="dot"></span>En Trámite</span>`;
+      const venc = m.vencimiento||'';
+      const vencHtml = venc
+        ? `<span style="font-size:12px;color:var(--muted)">${venc}</span>`
+        : `<span style="font-size:12px;color:var(--surface3)">—</span>`;
+      return `<tr>
+        <td style="font-weight:600">${m.denominacion}</td>
+        <td><span class="badge badge-clase">${m.clase}</span></td>
+        <td>${badge}</td>
+        <td><a class="acta-link" href="${url}" target="_blank">${m.acta} 🔗</a></td>
+        <td>${vencHtml}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="openModal(${i})">✏</button>
+          <button class="btn btn-sm btn-ghost" style="border-color:var(--red);color:var(--red);margin-left:4px" onclick="eliminarMarca(${i})">🗑</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('port-info').textContent=`${total} marcas · Página ${portPage} de ${totalPages}`;
+  document.getElementById('port-prev').disabled=portPage<=1;
+  document.getElementById('port-next').disabled=portPage>=totalPages;
+}
+
+function changePage(d){portPage+=d;renderPortfolio();}
+
+function renderFiltros() {
+  const clases=[...new Set(portfolio.map(m=>m.clase))].sort((a,b)=>a-b);
+  document.getElementById('port-clase').innerHTML='<option value="">Todas las clases</option>'+
+    clases.map(c=>`<option value="${c}">Clase ${c}</option>`).join('');
+  const fClase=document.getElementById('f-clase');
+  fClase.innerHTML='<option value="">— seleccionar —</option>'+
+    Array.from({length:45},(_,i)=>`<option value="${i+1}">Clase ${i+1} — ${CLASE_NOMBRES[i+1]||''}</option>`).join('');
+}
+
+function renderAll(){renderStats();renderFiltros();renderPortfolio();}
+
+// ═══════════════════════════════════════════════
+// PORTFOLIO — MODAL
+// ═══════════════════════════════════════════════
+function openModal(idx=null){
+  editIdx=idx;
+  document.getElementById('modal-title').textContent=idx===null?'Agregar Marca':'Editar Marca';
+  if(idx!==null){
+    const m=portfolio[idx];
+    document.getElementById('f-den').value=m.denominacion;
+    document.getElementById('f-clase').value=m.clase;
+    document.getElementById('f-estado').value=m.estado;
+    document.getElementById('f-acta').value=m.acta||'';
+    document.getElementById('f-venc').value=m.vencimiento||'';
+  } else {
+    document.getElementById('f-den').value='';
+    document.getElementById('f-clase').value='';
+    document.getElementById('f-estado').value='En Trámite';
+    document.getElementById('f-acta').value='';
+    document.getElementById('f-venc').value='';
+  }
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal(){document.getElementById('modal-overlay').classList.remove('open');editIdx=null;}
+function guardarMarca(){
+  const den=document.getElementById('f-den').value.trim();
+  const clase=parseInt(document.getElementById('f-clase').value);
+  if(!den||!clase){alert('Denominación y Clase son obligatorias.');return;}
+  const venc=document.getElementById('f-venc').value.trim();
+  const m={denominacion:den,clase,estado:document.getElementById('f-estado').value,
+    acta:document.getElementById('f-acta').value.trim()||'—'};
+  if(venc) m.vencimiento=venc;
+  if(editIdx!==null) portfolio[editIdx]=m; else portfolio.push(m);
+  savePort();closeModal();renderAll();
+}
+function eliminarMarca(i){
+  if(!confirm(`¿Eliminar "${portfolio[i].denominacion}" (Clase ${portfolio[i].clase})?`)) return;
+  portfolio.splice(i,1);savePort();renderAll();
+}
+
+// ═══════════════════════════════════════════════
+// PORTFOLIO — IMPORTAR
+// ═══════════════════════════════════════════════
+function importarArchivo(input) {
+  const file = input.files[0];
+  if(!file) return;
+  const res = document.getElementById('import-result');
+  res.innerHTML='<div class="loading"><div class="spinner"></div> Procesando '+file.name+'...</div>';
+
+  // Para Excel .xlsx usamos SheetJS via CDN
+  if(file.name.endsWith('.xlsx') || file.name.endsWith('.xls')){
+    // Cargar SheetJS dinámicamente
+    if(!window.XLSX){
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload=()=>leerExcel(file,res,input);
+      s.onerror=()=>{res.innerHTML='<div class="warn-box">Error al cargar el lector de Excel.</div>';};
+      document.head.appendChild(s);
+    } else {
+      leerExcel(file,res,input);
+    }
+    return;
+  }
+
+  // CSV
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      procesarCSV(e.target.result, res);
+    } catch(err) {
+      res.innerHTML=`<div class="warn-box">Error al procesar el archivo: ${err.message}</div>`;
+    }
+  };
+  reader.readAsText(file, 'UTF-8');
+  input.value='';
+}
+
+// ═══════════════════════════════════════════════
+// VIGILANCIA — MOTOR DE SIMILITUD
+// (Otamendi + Manual Armonizado OMPI)
+// ═══════════════════════════════════════════════
+function norm(s){
+  return s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9\s]/g,'').trim();
+}
+function fonetica(s){
+  return s.replace(/GU/g,'G').replace(/QU/g,'K')
+    .replace(/CE/g,'SE').replace(/CI/g,'SI').replace(/GE/g,'JE').replace(/GI/g,'JI')
+    .replace(/CH/g,'X').replace(/LL/g,'Y').replace(/PH/g,'F').replace(/TH/g,'T')
+    .replace(/W/g,'V').replace(/V/g,'B').replace(/Z/g,'S').replace(/H/g,'')
+    .replace(/[AEIOU]/g,'').replace(/(.)\1+/g,'$1');
+}
+function jw(s1,s2){
+  if(s1===s2) return 1; if(!s1.length||!s2.length) return 0;
+  const md=Math.max(Math.floor(Math.max(s1.length,s2.length)/2)-1,0);
+  const m1=new Array(s1.length).fill(false),m2=new Array(s2.length).fill(false);
+  let matches=0,t=0;
+  for(let i=0;i<s1.length;i++){
+    for(let j=Math.max(0,i-md);j<Math.min(i+md+1,s2.length);j++){
+      if(m2[j]||s1[i]!==s2[j]) continue; m1[i]=m2[j]=true;matches++;break;
+    }
+  }
+  if(!matches) return 0;
+  let k=0;
+  for(let i=0;i<s1.length;i++){
+    if(!m1[i]) continue; while(!m2[k]) k++;
+    if(s1[i]!==s2[k]) t++; k++;
+  }
+  const jar=(matches/s1.length+matches/s2.length+(matches-t/2)/matches)/3;
+  let p=0;
+  for(let i=0;i<Math.min(4,s1.length,s2.length);i++){if(s1[i]===s2[i])p++;else break;}
+  return Math.min(1,jar+p*0.1*(1-jar));
+}
+function calcSim(a,b){
+  const na=norm(a),nb=norm(b);
+  if(na===nb) return 100;
+  const scores=[];
+  scores.push(jw(na,nb)*100);
+  const corte=Math.ceil(Math.max(na.length,nb.length)*0.45);
+  const si=jw(na.substring(0,corte),nb.substring(0,corte))*100;
+  if(si>scores[0]) scores.push(si*0.92+scores[0]*0.08);
+  const fa=fonetica(na),fb=fonetica(nb);
+  if(fa&&fb){
+    scores.push(jw(fa,fb)*100);
+    const fia=fonetica(na.substring(0,corte)),fib=fonetica(nb.substring(0,corte));
+    if(fia&&fib) scores.push(jw(fia,fib)*100*0.92);
+  }
+  if(na.includes(nb)||nb.includes(na)){
+    const r=Math.min(na.length,nb.length)/Math.max(na.length,nb.length);
+    scores.push(68+r*22);
+  }
+  const wA=na.split(' ').filter(w=>w.length>2&&!TERMINOS_DEBILES.has(w));
+  const wB=nb.split(' ').filter(w=>w.length>2&&!TERMINOS_DEBILES.has(w));
+  if(wA.length&&wB.length){
+    const com=wA.filter(w=>wB.includes(w));
+    if(com.length){
+      const r=com.length/Math.max(wA.length,wB.length);
+      const prim=wA[0]&&wB[0]&&wA[0]===wB[0];
+      scores.push(55+r*30+(prim?12:0));
+    }
+  }
+  return Math.round(Math.max(...scores));
+}
+function relClase(c1,c2){
+  if(c1===c2) return 'identica';
+  if((CLASES_VINCULADAS[c1]||[]).includes(c2)) return 'vinculada';
+  return null;
+}
+function calcRiesgo(score,rel){
+  if(!rel) return null;
+  if(score>=95) return 'ALTO';
+  if(score>=80&&rel==='identica') return 'ALTO';
+  if(score>=78&&rel==='vinculada') return 'ALTO';
+  if(score>=65&&rel==='identica') return 'MEDIO';
+  if(score>=62&&rel==='vinculada') return 'MEDIO';
+  if(score>=50&&rel==='identica') return 'BAJO';
+  if(score>=48&&rel==='vinculada') return 'BAJO';
+  return null;
+}
+
+// ═══════════════════════════════════════════════
+// VIGILANCIA — PARSER PDF y ANÁLISIS
+// ═══════════════════════════════════════════════
+var _pdfJsReady=false;
+function loadPdfJs(){
+  if(_pdfJsReady) return Promise.resolve();
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>{
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      _pdfJsReady=true;res();
+    };
+    s.onerror=rej;document.head.appendChild(s);
+  });
+}
+function parsearBoletin(texto){
+  const marcas=[];
+  const idx=texto.indexOf('MARCAS NUEVAS');
+  const sec=idx!==-1?texto.substring(idx):texto;
+  sec.split(/\(21\)\s*Acta\s*/).slice(1).forEach(b=>{
+    const mA=b.match(/^(\d+)/),mC=b.match(/\(51\)\s*Clase\s*(\d+)/);
+    if(!mA||!mC) return;
+    const mD=b.match(/\(54\)\s*([^\n\r(]{1,80})/);
+    const mT=b.match(/\(73\)\s*([^\n\r(]{1,120})/);
+    const den=mD?mD[1].trim():'[FIGURATIVA]';
+    const tit=mT?mT[1].trim().replace(/\s*-\s*[A-Z]{2}\s*\*?\s*$/,''):'';
+    marcas.push({acta:mA[1],clase:parseInt(mC[1]),denominacion:den||'[FIGURATIVA]',titular:tit});
+  });
+  return marcas;
+}
+function analizarBoletin(marcasBoletin){
+  const resultados={};
+  const ORDEN={ALTO:0,MEDIO:1,BAJO:2};
+  for(const mi of portfolio){
+    const amenazas=[];
+    for(const mb of marcasBoletin){
+      const rel=relClase(mb.clase,mi.clase);
+      if(!rel) continue;
+      const sc=calcSim(mb.denominacion,mi.denominacion);
+      if(sc<50) continue;
+      const rv=calcRiesgo(sc,rel);
+      if(!rv) continue;
+      amenazas.push({...mb,score:sc,riesgo:rv,rel_clase:rel});
+    }
+    if(amenazas.length){
+      amenazas.sort((a,b)=>b.score-a.score);
+      resultados[`${mi.denominacion}|${mi.clase}`]={mi_marca:mi,amenazas};
+    }
+  }
+  return resultados;
+}
+function renderResultados(resultados,out,boletinLabel,totalMarcas){
+  const ORDEN={ALTO:0,MEDIO:1,BAJO:2};
+  const items=Object.entries(resultados).sort((a,b)=>
+    Math.min(...a[1].amenazas.map(x=>ORDEN[x.riesgo]))-Math.min(...b[1].amenazas.map(x=>ORDEN[x.riesgo])));
+  const altos=items.filter(([,v])=>v.amenazas.some(a=>a.riesgo==='ALTO')).length;
+  const medios=items.filter(([,v])=>!v.amenazas.some(a=>a.riesgo==='ALTO')&&v.amenazas.some(a=>a.riesgo==='MEDIO')).length;
+  const bajos=items.length-altos-medios;
+  const C={ALTO:'var(--red)',MEDIO:'var(--yellow)',BAJO:'var(--green)'};
+
+  let html=`<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+    <div class="stat-card" style="flex:1;min-width:100px;padding:12px">
+      <div class="stat-label">Afectadas</div><div class="stat-value" style="font-size:22px">${items.length}</div>
+      <div style="font-size:11px;color:var(--muted)">${totalMarcas} relevadas · ${boletinLabel}</div>
+    </div>
+    <div class="stat-card" style="flex:1;min-width:100px;padding:12px;border-color:rgba(255,77,109,.3);background:var(--red-bg)">
+      <div class="stat-label">Alto</div><div class="stat-value" style="color:var(--red);font-size:22px">${altos}</div>
+    </div>
+    <div class="stat-card" style="flex:1;min-width:100px;padding:12px;border-color:rgba(255,201,60,.3);background:var(--yellow-bg)">
+      <div class="stat-label">Medio</div><div class="stat-value" style="color:var(--yellow);font-size:22px">${medios}</div>
+    </div>
+    <div class="stat-card" style="flex:1;min-width:100px;padding:12px;border-color:rgba(45,212,160,.3);background:var(--green-bg)">
+      <div class="stat-label">Bajo</div><div class="stat-value" style="color:var(--green);font-size:22px">${bajos}</div>
+    </div>
+  </div>`;
+
+  items.forEach(([key,data],idx)=>{
+    const top=data.amenazas[0].riesgo;
+    const mi=data.mi_marca;
+    const cc=top==='ALTO'?'border-color:rgba(255,77,109,.3);background:rgba(255,77,109,.03)':
+               top==='MEDIO'?'border-color:rgba(255,201,60,.3);background:rgba(255,201,60,.02)':
+               'border-color:rgba(45,212,160,.3);background:rgba(45,212,160,.02)';
+    const urlMi=`https://portaltramites.inpi.gob.ar/MarcasConsultas/Resultado?acta=${mi.acta}`;
+    const badge=mi.estado==='Concedida'
+      ?`<span class="badge badge-concedida"><span class="dot"></span>Concedida</span>`
+      :`<span class="badge badge-tramite"><span class="dot"></span>En Trámite</span>`;
+
+    html+=`<div class="result-card" style="${cc}">
+      <div class="card-header" onclick="toggleCard(${idx})">
+        <span class="riesgo-${top.toLowerCase()}">${top}</span>
+        <div>
+          <div style="font-weight:700;font-size:14px">🔒 ${mi.denominacion}</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:3px">
+            <span class="badge badge-clase">${mi.clase}</span>${badge}
+            <span style="font-size:11px;color:var(--muted)">Acta ${mi.acta}</span>
+          </div>
+        </div>
+        <span style="color:var(--muted);margin-left:auto">${data.amenazas.length} amenaza${data.amenazas.length>1?'s':''}</span>
+        <span style="color:var(--muted)" id="arr-${idx}">▼</span>
+      </div>
+      <div class="card-body" id="body-${idx}">
+        <div style="font-size:11px;color:var(--muted);padding:10px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">
+          Marcas publicadas que podrían afectarla:
+        </div>`;
+
+    data.amenazas.forEach(a=>{
+      const fc=C[a.riesgo];
+      const url=`https://portaltramites.inpi.gob.ar/MarcasConsultas/Resultado?acta=${a.acta}`;
+      html+=`<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin:8px 0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <span class="riesgo-${a.riesgo.toLowerCase()}" style="font-size:10px">${a.riesgo}</span>
+          <span style="font-weight:700;font-size:14px">⚠ ${a.denominacion}</span>
+          <span class="badge badge-clase">${a.clase}</span>
+          <span style="font-size:11px;color:var(--muted)">${a.titular}</span>
+          <a href="${url}" target="_blank" style="margin-left:auto;font-size:11px;background:rgba(79,127,255,.15);
+            color:var(--accent);padding:3px 9px;border-radius:5px;text-decoration:none;border:1px solid rgba(79,127,255,.3)">
+            🔗 Ver en INPI
+          </a>
+        </div>
+        <div class="comp-grid">
+          <div class="comp-box">
+            <div class="comp-label">🔒 Mi Marca</div>
+            <div class="comp-name">${mi.denominacion}</div>
+            <div class="comp-sub">Clase ${mi.clase} — ${CLASE_NOMBRES[mi.clase]||''}</div>
+            <div class="comp-sub">${mi.estado} · Acta ${mi.acta}</div>
+            <a href="${urlMi}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;
+              margin-top:6px;font-size:11px;color:var(--accent);text-decoration:none;font-weight:600">
+              🔗 Ver en INPI →
+            </a>
+          </div>
+          <div style="font-size:18px;color:var(--muted);align-self:center;font-weight:700">VS</div>
+          <div class="comp-box">
+            <div class="comp-label">⚠ Marca en Boletín</div>
+            <div class="comp-name">${a.denominacion}</div>
+            <div class="comp-sub">Clase ${a.clase} — ${CLASE_NOMBRES[a.clase]||''}</div>
+            <div class="comp-sub">${a.titular}</div>
+            <a href="${url}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;
+              margin-top:6px;font-size:11px;color:var(--accent);text-decoration:none;font-weight:600">
+              🔗 Ver en INPI →
+            </a>
+          </div>
+        </div>
+        <div class="score-bar-wrap">
+          <span style="font-size:11px;color:var(--muted);width:100px">Similitud global</span>
+          <div class="score-bar"><div class="score-fill" style="width:${a.score}%;background:${fc}"></div></div>
+          <span style="font-size:11px;color:var(--muted);width:35px;text-align:right">${a.score}%</span>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+          Relación de clase: <b style="color:var(--text)">${a.rel_clase}</b> ·
+          Criterios: impresión de conjunto, examen sucesivo, semejanzas sobre diferencias (Otamendi + OMPI)
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  });
+
+  if(!items.length){
+    html+=`<div class="empty"><div class="empty-icon">✅</div>
+      <div class="empty-title">Sin conflictos detectados</div>
+      <div>No se encontraron marcas similares en el boletín analizado.</div></div>`;
+  }
+  out.innerHTML=html;
+}
+function toggleCard(idx){
+  const b=document.getElementById('body-'+idx);
+  const a=document.getElementById('arr-'+idx);
+  b.classList.toggle('open');
+  a.textContent=b.classList.contains('open')?'▲':'▼';
+}
+
+async function vigilanciaConPDF(input){
+  const out=document.getElementById('vig-output');
+  const file=input.files[0]; if(!file) return;
+  out.innerHTML='<div class="loading"><div class="spinner"></div> Leyendo '+file.name+'...</div>';
+  try {
+    await loadPdfJs();
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    let txt='';
+    for(let p=2;p<=pdf.numPages;p++){
+      const pg=await pdf.getPage(p);
+      const tc=await pg.getTextContent();
+      txt+=tc.items.map(x=>x.str).join(' ')+'\n';
+    }
+    out.innerHTML='<div class="loading"><div class="spinner"></div> Analizando...</div>';
+    await new Promise(r=>setTimeout(r,30));
+    const marcas=parsearBoletin(txt);
+    const resultados=analizarBoletin(marcas);
+    renderResultados(resultados,out,'PDF manual',marcas.length);
+  } catch(e){
+    out.innerHTML='<div class="warn-box">Error al leer el PDF: '+e.message+'</div>';
+  }
+}
+
+async function cargarHistorialReportes(){
+  const div=document.getElementById('vig-historial');
+  if(!div) return;
+  try {
+    const resp=await fetch('data/reportes.json');
+    if(!resp.ok){div.innerHTML='';return;}
+    const reportes=await resp.json();
+    if(!reportes.length){div.innerHTML='';return;}
+    const ultimo=reportes[0];
+    div.innerHTML=`
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-size:13px;font-weight:700;margin-bottom:4px">
+              Último análisis: <span style="color:var(--accent)">${ultimo.label||'—'}</span>
+              · <span style="color:var(--muted)">${ultimo.fecha||''}</span>
+            </div>
+            <div style="font-size:12px;color:var(--muted)">${reportes.length} reporte(s) disponible(s)</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <a href="data/${ultimo.archivo}" target="_blank" class="btn btn-primary btn-sm">
+              Ver último reporte
+            </a>
+            ${reportes.length>1?`<select onchange="if(this.value)window.open(this.value,'_blank')"
+              style="background:var(--bg);border:1px solid var(--border);color:var(--text);
+              border-radius:7px;padding:6px 10px;font-size:12px;outline:none;font-family:inherit">
+              <option value="">Reportes anteriores...</option>
+              ${reportes.slice(1).map(r=>`<option value="data/${r.archivo}">${r.label||'—'} — ${r.fecha||''}</option>`).join('')}
+            </select>`:''}
+          </div>
+        </div>
+      </div>`;
+  } catch(e){ if(div) div.innerHTML=''; }
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded',()=>{
+  portfolio=loadPort();
+  renderAll();
+  cargarHistorialReportes();
+
+  document.getElementById('modal-overlay').addEventListener('click',function(e){
+    if(e.target===this) closeModal();
+  });
+});
+</script>
+</body>
+</html>
