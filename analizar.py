@@ -18,8 +18,8 @@ UMBRAL      = int(os.environ.get("UMBRAL_SIMILITUD", "70"))
 INPI_CUIT   = os.environ.get("INPI_CUIT", "20287461020")
 INPI_KEY    = os.environ.get("INPI_API_KEY", "")
 INPI_WS_URL = "https://ws.inpi.gob.ar/wsinpi.asmx"
-BOLETIN_REF_NUM  = 11067
-BOLETIN_REF_DATE = date(2026, 6, 24)
+BOLETIN_REF_NUM  = 11108
+BOLETIN_REF_DATE = date(2026, 9, 2)
 
 logging.basicConfig(level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s")
@@ -56,12 +56,25 @@ def cargar_portfolio():
 def detectar_boletines(hoy=None):
     """
     Detecta los boletines de Marcas Nuevas publicados el miercoles de esta semana.
-    Solo busca un rango acotado (base a base+6) para no capturar semanas anteriores.
-    Referencia: boletin 11067 = miercoles 24/06/2026.
-    Cada miercoles el INPI publica tipicamente entre 1 y 6 boletines consecutivos.
+    Usa la referencia guardada del ultimo analisis para estimar el numero base.
+    El INPI publica entre 1 y varios boletines por miercoles — buscamos en rango amplio.
     """
     from datetime import timedelta
     hoy = hoy or date.today()
+
+    # Cargar referencia actualizada si existe
+    global BOLETIN_REF_NUM, BOLETIN_REF_DATE
+    ref_ruta = Path(__file__).parent / "data" / "referencia.json"
+    if ref_ruta.exists():
+        try:
+            with open(ref_ruta) as f:
+                ref = json.load(f)
+            from datetime import datetime
+            BOLETIN_REF_NUM = ref["num"]
+            BOLETIN_REF_DATE = datetime.strptime(ref["fecha"], "%Y-%m-%d").date()
+            logging.info(f"Referencia cargada: #{BOLETIN_REF_NUM} = {BOLETIN_REF_DATE}")
+        except Exception as e:
+            logging.warning(f"Error cargando referencia: {e}")
 
     # Calcular el miercoles de esta semana
     dia_semana = hoy.weekday()  # 0=lunes, 2=miercoles
@@ -72,8 +85,13 @@ def detectar_boletines(hoy=None):
     miercoles = hoy - timedelta(days=dias_desde_mie)
 
     # Estimar numero de boletin para ese miercoles exacto
-    semanas = round((miercoles - BOLETIN_REF_DATE).days / 7)
-    base = BOLETIN_REF_NUM + semanas
+    # Dias desde la referencia * promedio historico de boletines por dia
+    # Referencia calibrada: 11108 = 02/09/2026
+    # En vez de estimar, buscamos en rango amplio y tomamos los que existen
+    dias = (miercoles - BOLETIN_REF_DATE).days
+    # Promedio historico: entre 11067 (24/06) y 11108 (02/09) = 41 boletines en 70 dias
+    promedio_diario = 41 / 70  # ~0.586 boletines por dia
+    base = BOLETIN_REF_NUM + round(dias * promedio_diario)
     logging.info(f"Miercoles: {miercoles} — Boletin base estimado: #{base}")
 
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -81,7 +99,7 @@ def detectar_boletines(hoy=None):
 
     # Buscar SOLO desde base hasta base+6 (max 6 boletines por miercoles)
     # Si el estimado tiene 1-2 de desfase, empezamos desde base-2
-    for num in range(base - 2, base + 7):
+    for num in range(base - 10, base + 15):  # Rango amplio para cubrir variacion en publicaciones
         url = f"https://portaltramites.inpi.gob.ar/Uploads/Boletines/{num}_3_.pdf"
         try:
             r = requests.head(url, headers=headers, timeout=15, allow_redirects=True)
@@ -114,7 +132,7 @@ def detectar_boletines(hoy=None):
 
 
 def marcar_procesados(boletines):
-    """Registra los boletines procesados para no repetirlos."""
+    """Registra los boletines procesados y actualiza la referencia para el proximo miercoles."""
     procesados_ruta = Path(__file__).parent / "data" / "procesados.json"
     procesados = []
     if procesados_ruta.exists():
@@ -123,9 +141,20 @@ def marcar_procesados(boletines):
     for b in boletines:
         if str(b) not in procesados:
             procesados.append(str(b))
-    # Mantener solo los ultimos 200 para no crecer indefinidamente
     with open(procesados_ruta, "w") as f:
         json.dump(procesados[-200:], f)
+
+    # Actualizar referencia con el ultimo boletin encontrado
+    # para que el proximo miercoles el estimado sea preciso
+    if boletines:
+        ref_ruta = Path(__file__).parent / "data" / "referencia.json"
+        ref = {
+            "num": max(boletines),
+            "fecha": date.today().strftime("%Y-%m-%d")
+        }
+        with open(ref_ruta, "w") as f:
+            json.dump(ref, f)
+        logging.info(f"Referencia actualizada: #{ref['num']} = {ref['fecha']}")
 
 # ── Descargar PDF ──────────────────────────────────────────────────
 def descargar(num):
