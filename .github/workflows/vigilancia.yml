@@ -12,17 +12,29 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Instalar dependencias
         run: pip install requests pdfplumber jellyfish
+
       - name: Ejecutar vigilancia semanal
         env:
           EMAIL: ${{ secrets.EMAIL }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           UMBRAL_SIMILITUD: "70"
         run: python analizar.py
+
+      - name: Guardar reportes en rama main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/reportes.json data/procesados.json data/reporte_*.html
+          git diff --staged --quiet || git commit -m "Reporte vigilancia $(date +%d/%m/%Y)"
+          git push
+
       - name: Publicar en GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
