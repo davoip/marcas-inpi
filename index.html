@@ -698,17 +698,32 @@ function importarArchivo(input) {
 
 // ═══════════════════════════════════════════════
 // VIGILANCIA — MOTOR DE SIMILITUD
-// (Otamendi + Manual Armonizado OMPI)
+// (Otamendi §4.3-4.7 / Manual Armonizado OMPI)
+//
+// NOTA (02/09/2026): version corregida. La anterior reducia cada
+// marca a un "esqueleto" de consonantes (quitando todas las vocales)
+// y comparaba ademas un fragmento truncado del 45% inicial. Esos
+// strings resultaban muy cortos, y Jaro-Winkler sobre strings cortos
+// da puntajes altos con apenas 2-3 letras en comun — eso generaba
+// falsos positivos graves (ej: BARSATEX vs OBRAI daba ALTO).
+// Correccion: la fonetica ya no quita vocales (mantiene la longitud
+// real de la palabra), se elimina el truncado al 45% (Jaro-Winkler
+// ya pondera mas las coincidencias iniciales via su propio bonus de
+// prefijo), y el puntaje exige acuerdo entre Jaro-Winkler (tolera
+// transposiciones) Y Levenshtein (exige secuencia real de letras),
+// tomando el MINIMO de ambas.
 // ═══════════════════════════════════════════════
 function norm(s){
   return s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9\s]/g,'').trim();
 }
+// Fonetica espanol rioplatense: B/V indistinguibles, seseo (Z/S/C+e,i),
+// H muda, QU->K, CH y LL con sonido propio. NO elimina vocales.
 function fonetica(s){
-  return s.replace(/GU/g,'G').replace(/QU/g,'K')
-    .replace(/CE/g,'SE').replace(/CI/g,'SI').replace(/GE/g,'JE').replace(/GI/g,'JI')
-    .replace(/CH/g,'X').replace(/LL/g,'Y').replace(/PH/g,'F').replace(/TH/g,'T')
-    .replace(/W/g,'V').replace(/V/g,'B').replace(/Z/g,'S').replace(/H/g,'')
-    .replace(/[AEIOU]/g,'').replace(/(.)\1+/g,'$1');
+  return s.replace(/QU/g,'K').replace(/CH/g,'X').replace(/LL/g,'Y')
+    .replace(/CE/g,'SE').replace(/CI/g,'SI').replace(/C/g,'K')
+    .replace(/GE/g,'JE').replace(/GI/g,'JI')
+    .replace(/W/g,'B').replace(/V/g,'B').replace(/Z/g,'S')
+    .replace(/PH/g,'F').replace(/TH/g,'T').replace(/H/g,'');
 }
 function jw(s1,s2){
   if(s1===s2) return 1; if(!s1.length||!s2.length) return 0;
@@ -731,24 +746,44 @@ function jw(s1,s2){
   for(let i=0;i<Math.min(4,s1.length,s2.length);i++){if(s1[i]===s2[i])p++;else break;}
   return Math.min(1,jar+p*0.1*(1-jar));
 }
+function levenshteinRatio(s1,s2){
+  if(s1===s2) return 1; if(!s1.length||!s2.length) return 0;
+  const m=s1.length,n=s2.length;
+  let dp=Array.from({length:n+1},(_,i)=>i);
+  for(let i=1;i<=m;i++){
+    let prev=dp[0]; dp[0]=i;
+    for(let j=1;j<=n;j++){
+      const tmp=dp[j];
+      const cost=s1[i-1]===s2[j-1]?0:1;
+      dp[j]=Math.min(dp[j]+1,dp[j-1]+1,prev+cost);
+      prev=tmp;
+    }
+  }
+  return 1-dp[n]/Math.max(m,n);
+}
+// Similitud grafica/fonetica real: exige coincidencia de LETRAS
+// (Jaro-Winkler) Y de SECUENCIA (Levenshtein). Se toma el minimo —
+// evita que palabras con las mismas letras en otro orden (ej.
+// BARSATEX / RESTRENA) puntuen alto por casualidad.
+function simSecuencial(s1,s2){
+  return Math.min(jw(s1,s2),levenshteinRatio(s1,s2))*100;
+}
 function calcSim(a,b){
   const na=norm(a),nb=norm(b);
   if(na===nb) return 100;
   const scores=[];
-  scores.push(jw(na,nb)*100);
-  const corte=Math.ceil(Math.max(na.length,nb.length)*0.45);
-  const si=jw(na.substring(0,corte),nb.substring(0,corte))*100;
-  if(si>scores[0]) scores.push(si*0.92+scores[0]*0.08);
+  // 1. Grafica/ortografica (Otamendi §4.3.1-4.3.2)
+  scores.push(simSecuencial(na,nb));
+  // 2. Fonetica/auditiva (Otamendi §4.4)
   const fa=fonetica(na),fb=fonetica(nb);
-  if(fa&&fb){
-    scores.push(jw(fa,fb)*100);
-    const fia=fonetica(na.substring(0,corte)),fib=fonetica(nb.substring(0,corte));
-    if(fia&&fib) scores.push(jw(fia,fib)*100*0.92);
-  }
+  if(fa&&fb) scores.push(simSecuencial(fa,fb));
+  // 3. Contencion (Otamendi §4.5 / OMPI): agregar una palabra
+  //    generica no elimina el riesgo de confusion.
   if(na.includes(nb)||nb.includes(na)){
     const r=Math.min(na.length,nb.length)/Math.max(na.length,nb.length);
     scores.push(68+r*22);
   }
+  // 4. Elemento dominante compartido (Otamendi §4.7.1-d)
   const wA=na.split(' ').filter(w=>w.length>2&&!TERMINOS_DEBILES.has(w));
   const wB=nb.split(' ').filter(w=>w.length>2&&!TERMINOS_DEBILES.has(w));
   if(wA.length&&wB.length){
@@ -759,7 +794,15 @@ function calcSim(a,b){
       scores.push(55+r*30+(prim?12:0));
     }
   }
-  return Math.round(Math.max(...scores));
+  let maxsc=Math.round(Math.max(...scores));
+  // Marcas debiles: menor proteccion (Otamendi §4.7.2-c)
+  if(esMarcaDebil(na)&&esMarcaDebil(nb)&&maxsc<90) maxsc=Math.round(maxsc*0.82);
+  return maxsc;
+}
+function esMarcaDebil(s){
+  const palabras=s.split(' ').filter(w=>w.length>2);
+  if(!palabras.length) return false;
+  return palabras.filter(w=>TERMINOS_DEBILES.has(w)).length/palabras.length>=0.5;
 }
 function relClase(c1,c2){
   if(c1===c2) return 'identica';
@@ -768,13 +811,13 @@ function relClase(c1,c2){
 }
 function calcRiesgo(score,rel){
   if(!rel) return null;
-  if(score>=95) return 'ALTO';
-  if(score>=80&&rel==='identica') return 'ALTO';
-  if(score>=78&&rel==='vinculada') return 'ALTO';
-  if(score>=65&&rel==='identica') return 'MEDIO';
-  if(score>=62&&rel==='vinculada') return 'MEDIO';
-  if(score>=50&&rel==='identica') return 'BAJO';
-  if(score>=48&&rel==='vinculada') return 'BAJO';
+  if(score>=90) return 'ALTO';
+  if(score>=78&&rel==='identica') return 'ALTO';
+  if(score>=76&&rel==='vinculada') return 'ALTO';
+  if(score>=60&&rel==='identica') return 'MEDIO';
+  if(score>=58&&rel==='vinculada') return 'MEDIO';
+  if(score>=45&&rel==='identica') return 'BAJO';
+  if(score>=43&&rel==='vinculada') return 'BAJO';
   return null;
 }
 
@@ -867,17 +910,18 @@ function renderResultados(resultados,out,boletinLabel,totalMarcas){
       :`<span class="badge badge-tramite"><span class="dot"></span>En Trámite</span>`;
 
     html+=`<div class="result-card" style="${cc}">
-      <div class="card-header" onclick="toggleCard(${idx})">
-        <span class="riesgo-${top.toLowerCase()}">${top}</span>
-        <div>
+      <div class="card-header">
+        <span class="riesgo-${top.toLowerCase()}" onclick="toggleCard(${idx})" style="cursor:pointer">${top}</span>
+        <div onclick="toggleCard(${idx})" style="cursor:pointer">
           <div style="font-weight:700;font-size:14px">🔒 ${mi.denominacion}</div>
           <div style="display:flex;gap:6px;align-items:center;margin-top:3px">
             <span class="badge badge-clase">${mi.clase}</span>${badge}
-            <span style="font-size:11px;color:var(--muted)">Acta ${mi.acta}</span>
+            <a href="${urlMi}" target="_blank" onclick="event.stopPropagation()"
+              style="font-size:11px;color:var(--accent);text-decoration:none">Acta ${mi.acta} 🔗</a>
           </div>
         </div>
-        <span style="color:var(--muted);margin-left:auto">${data.amenazas.length} amenaza${data.amenazas.length>1?'s':''}</span>
-        <span style="color:var(--muted)" id="arr-${idx}">▼</span>
+        <span onclick="toggleCard(${idx})" style="cursor:pointer;color:var(--muted);margin-left:auto">${data.amenazas.length} amenaza${data.amenazas.length>1?'s':''}</span>
+        <span onclick="toggleCard(${idx})" style="cursor:pointer;color:var(--muted)" id="arr-${idx}">▼</span>
       </div>
       <div class="card-body" id="body-${idx}">
         <div style="font-size:11px;color:var(--muted);padding:10px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">

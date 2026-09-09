@@ -9,7 +9,6 @@ from datetime import date, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from jellyfish import jaro_winkler_similarity
 
 # ── Configuracion ──────────────────────────────────────────────────
 EMAIL       = os.environ.get("EMAIL", "estudiodavo@gmail.com")
@@ -199,24 +198,101 @@ def parsear(ruta):
         })
     return marcas
 
-# ── Motor de similitud (Otamendi §4.3-4.7 / OMPI) ─────────────────
+# ═══════════════════════════════════════════════════════════════════
+# MOTOR DE SIMILITUD MARCARIA (Otamendi §4.3-4.7 / Manual OMPI)
+#
+# NOTA DE CALIBRACION (02/09/2026): el motor anterior reducia la
+# denominacion a un "esqueleto" de consonantes (quitando TODAS las
+# vocales) y ademas evaluaba por separado un fragmento truncado del
+# 45% inicial de cada marca. Esos dos strings resultantes eran muy
+# cortos, y Jaro-Winkler sobre strings cortos da puntajes altos con
+# apenas 2-3 letras en comun — eso generaba falsos positivos graves
+# (ej: BARSATEX vs OBRAI daba ALTO por compartir solo "B" y "R").
+#
+# Correccion aplicada:
+# 1) La fonetica ya NO elimina vocales — solo sustituye letras que
+#    suenan igual en espanol rioplatense (V/B, Z/S, C+E/I -> S, etc).
+#    Esto mantiene la longitud real de la palabra.
+# 2) Se elimina el sub-analisis de "radical truncado al 45%": el
+#    propio Jaro-Winkler ya pondera mas las coincidencias iniciales
+#    (bonus de prefijo), sin necesidad de truncar artificialmente.
+# 3) El puntaje grafico/fonetico exige AHORA acuerdo entre dos
+#    metricas distintas: Jaro-Winkler (tolera transposiciones) Y
+#    Levenshtein (exige secuencia real de letras). Se toma el MINIMO
+#    de ambas — una palabra con las mismas letras en otro orden
+#    (ej. BARSATEX vs RESTRENA) puntua alto en Jaro-Winkler pero muy
+#    bajo en Levenshtein, y con el minimo el resultado queda bajo,
+#    como corresponde.
+# ═══════════════════════════════════════════════════════════════════
+
 def norm(s):
     s = s.upper()
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
     return re.sub(r'[^A-Z0-9\s]', '', s).strip()
 
+# Fonetica espanol rioplatense (Otamendi §4.4.1): B/V indistinguibles,
+# Z/S/C(e,i) asimilables (seseo), H muda, QU->K, CH y LL sonidos propios.
+# A diferencia de la version anterior, NO se eliminan las vocales.
 def fonetica(s):
-    for a, b in [("GU","GU"),("QU","K"),("CE","SE"),("CI","SI"),
-                 ("GE","JE"),("GI","JI"),("CH","X"),("LL","Y"),
-                 ("PH","F"),("TH","T"),("W","V"),("V","B"),
-                 ("Z","S"),("H","")]:
-        s = s.replace(a, b)
-    s = re.sub(r'[AEIOU]', '', s)
-    return re.sub(r'(.)\1+', r'\1', s)
+    s = s.replace("QU", "K")
+    s = s.replace("CH", "X")
+    s = s.replace("LL", "Y")
+    s = s.replace("CE", "SE").replace("CI", "SI")
+    s = s.replace("C", "K")       # resto de C (CA/CO/CU/consonante) suena K
+    s = s.replace("GE", "JE").replace("GI", "JI")
+    s = s.replace("W", "B")
+    s = s.replace("V", "B")
+    s = s.replace("Z", "S")
+    s = s.replace("PH", "F")
+    s = s.replace("TH", "T")
+    s = s.replace("H", "")        # H es muda
+    return s
 
-def jw(s1, s2):
-    return jaro_winkler_similarity(s1, s2)
+def jaro_winkler(s1, s2):
+    if s1 == s2: return 1.0
+    if not s1 or not s2: return 0.0
+    md = max(0, max(len(s1), len(s2)) // 2 - 1)
+    m1 = [False]*len(s1); m2 = [False]*len(s2)
+    matches = 0; t = 0
+    for i in range(len(s1)):
+        for j in range(max(0, i-md), min(i+md+1, len(s2))):
+            if m2[j] or s1[i] != s2[j]: continue
+            m1[i] = m2[j] = True; matches += 1; break
+    if not matches: return 0.0
+    k = 0
+    for i in range(len(s1)):
+        if not m1[i]: continue
+        while not m2[k]: k += 1
+        if s1[i] != s2[k]: t += 1
+        k += 1
+    jaro = (matches/len(s1) + matches/len(s2) + (matches - t/2)/matches) / 3
+    p = 0
+    for i in range(min(4, len(s1), len(s2))):
+        if s1[i] == s2[i]: p += 1
+        else: break
+    return min(1.0, jaro + p * 0.1 * (1 - jaro))
+
+def levenshtein_ratio(s1, s2):
+    if s1 == s2: return 1.0
+    if not s1 or not s2: return 0.0
+    m, n = len(s1), len(s2)
+    dp = list(range(n + 1))
+    for i in range(1, m + 1):
+        prev = dp[0]; dp[0] = i
+        for j in range(1, n + 1):
+            tmp = dp[j]
+            cost = 0 if s1[i-1] == s2[j-1] else 1
+            dp[j] = min(dp[j] + 1, dp[j-1] + 1, prev + cost)
+            prev = tmp
+    return 1 - dp[n] / max(m, n)
+
+def sim_secuencial(s1, s2):
+    """Similitud grafica/fonetica real: exige coincidencia de LETRAS
+    (Jaro-Winkler) Y de SECUENCIA (Levenshtein). Se toma el minimo de
+    ambas para evitar que palabras con las mismas letras en otro
+    orden puntuen alto por casualidad."""
+    return min(jaro_winkler(s1, s2), levenshtein_ratio(s1, s2)) * 100
 
 def es_debil(s):
     palabras = s.split()
@@ -228,48 +304,45 @@ def calcular_similitud(a, b):
     if na == nb: return 100
     scores = []
 
-    # Grafica/ortografica (§4.3)
-    sg = jw(na, nb) * 100
-    scores.append(sg)
-    corte = max(3, int(max(len(na), len(nb)) * 0.45))
-    si = jw(na[:corte], nb[:corte]) * 100
-    if si > sg: scores.append(si * 0.92 + sg * 0.08)
+    # 1. Similitud grafica/ortografica (Otamendi §4.3.1-4.3.2)
+    scores.append(sim_secuencial(na, nb))
 
-    # Fonetica/auditiva (§4.4)
+    # 2. Similitud fonetica/auditiva (Otamendi §4.4)
     fa, fb = fonetica(na), fonetica(nb)
     if fa and fb:
-        scores.append(jw(fa, fb) * 100)
-        fia, fib = fonetica(na[:corte]), fonetica(nb[:corte])
-        if fia and fib: scores.append(jw(fia, fib) * 100 * 0.92)
+        scores.append(sim_secuencial(fa, fb))
 
-    # Conceptual/ideologica (§4.5)
+    # 3. Contencion — una marca dentro de la otra (Otamendi §4.5 / OMPI):
+    #    agregar una palabra generica no elimina el riesgo de confusion.
     if na in nb or nb in na:
         ratio = min(len(na), len(nb)) / max(len(na), len(nb))
         scores.append(68 + ratio * 22)
 
+    # 4. Elemento dominante compartido (Otamendi §4.7.1-d)
     wA = [w for w in na.split() if len(w) > 2 and w not in TERMINOS_DEBILES]
     wB = [w for w in nb.split() if len(w) > 2 and w not in TERMINOS_DEBILES]
     if wA and wB:
         comunes = set(wA) & set(wB)
         if comunes:
             ratio = len(comunes) / max(len(wA), len(wB))
-            prim = wA[0] == wB[0] if wA and wB else False
+            prim = wA[0] == wB[0]
             scores.append(55 + ratio * 30 + (12 if prim else 0))
 
     maxsc = round(max(scores))
+    # Marcas debiles: menor proteccion (Otamendi §4.7.2-c)
     if es_debil(na) and es_debil(nb) and maxsc < 90:
         return round(maxsc * 0.82)
     return maxsc
 
 def nivel_riesgo(score, rel):
     if not rel: return None
-    if score >= 95: return "ALTO"
-    if score >= 80 and rel == "identica": return "ALTO"
-    if score >= 78 and rel == "vinculada": return "ALTO"
-    if score >= 65 and rel == "identica": return "MEDIO"
-    if score >= 62 and rel == "vinculada": return "MEDIO"
-    if score >= 50 and rel == "identica": return "BAJO"
-    if score >= 48 and rel == "vinculada": return "BAJO"
+    if score >= 90: return "ALTO"
+    if score >= 78 and rel == "identica": return "ALTO"
+    if score >= 76 and rel == "vinculada": return "ALTO"
+    if score >= 60 and rel == "identica": return "MEDIO"
+    if score >= 58 and rel == "vinculada": return "MEDIO"
+    if score >= 45 and rel == "identica": return "BAJO"
+    if score >= 43 and rel == "vinculada": return "BAJO"
     return None
 
 def relacion_clases(c1, c2):
@@ -315,6 +388,7 @@ def generar_html(resultados, boletines, fecha_str, total):
     for key, data in items:
         mi = data["mi_marca"]
         top = data["amenazas"][0]["riesgo"]
+        url_mi = f"https://portaltramites.inpi.gob.ar/MarcasConsultas/Resultado?acta={mi.get('acta','')}"
         filas = ""
         for a in data["amenazas"]:
             url = f"https://portaltramites.inpi.gob.ar/MarcasConsultas/Resultado?acta={a['acta']}"
@@ -328,15 +402,18 @@ def generar_html(resultados, boletines, fecha_str, total):
               <td style="padding:8px"><a href="{url}" style="color:#4f7fff">Ver INPI →</a></td>
             </tr>"""
         cards += f"""
-        <div style="margin-bottom:16px;border:1px solid {COLOR[top]}44;border-radius:8px;overflow:hidden">
-          <div style="background:#1a1d27;padding:12px 16px;border-bottom:1px solid {COLOR[top]}33">
+        <details style="margin-bottom:12px;border:1px solid {COLOR[top]}44;border-radius:8px;overflow:hidden">
+          <summary style="background:#1a1d27;padding:12px 16px;cursor:pointer;list-style:none;
+            display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <span style="background:{COLOR[top]}22;color:{COLOR[top]};border:1px solid {COLOR[top]}55;
               padding:2px 10px;border-radius:20px;font-size:11px;font-weight:800">{top}</span>
-            <span style="font-weight:700;font-size:15px;margin-left:10px">🔒 {mi['denominacion']}</span>
-            <span style="color:#4f7fff;font-size:12px;margin-left:8px">Clase {mi['clase']}</span>
-            <span style="color:#7b82a8;font-size:11px;margin-left:8px">Acta {mi.get('acta','—')}</span>
-          </div>
-          <div style="overflow-x:auto">
+            <span style="font-weight:700;font-size:15px">🔒 {mi['denominacion']}</span>
+            <a href="{url_mi}" style="color:#4f7fff;font-size:12px;text-decoration:none">
+              Clase {mi['clase']} · Acta {mi.get('acta','—')} 🔗
+            </a>
+            <span style="color:#7b82a8;font-size:11px;margin-left:auto">{len(data['amenazas'])} amenaza(s)</span>
+          </summary>
+          <div style="overflow-x:auto;border-top:1px solid {COLOR[top]}33">
             <table style="width:100%;border-collapse:collapse;font-size:13px">
               <thead><tr style="background:#22263a">
                 <th style="padding:6px 8px;text-align:left;color:#7b82a8;font-size:11px">Riesgo</th>
@@ -350,12 +427,19 @@ def generar_html(resultados, boletines, fecha_str, total):
               <tbody>{filas}</tbody>
             </table>
           </div>
-        </div>"""
+        </details>"""
 
     sin = f'<div style="background:#1a1d27;border:1px solid #2e3350;border-radius:10px;padding:40px;text-align:center;color:#7b82a8">Sin conflictos detectados en los boletines analizados.</div>' if not resultados else ""
 
     return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>Vigilancia Marcas — {fecha_str}</title></head>
+<title>Vigilancia Marcas — {fecha_str}</title>
+<style>
+summary::-webkit-details-marker {{ display:none; }}
+summary {{ list-style:none; }}
+summary::before {{ content:'▶'; margin-right:8px; color:#7b82a8; font-size:11px; transition:transform .15s; }}
+details[open] summary::before {{ transform:rotate(90deg); }}
+</style>
+</head>
 <body style="background:#0f1117;color:#e8eaf6;font-family:system-ui,sans-serif;padding:24px;max-width:960px;margin:0 auto">
 <div style="background:#1a1d27;border:1px solid #2e3350;border-radius:12px;padding:20px;margin-bottom:20px">
   <h1 style="margin:0 0 6px;font-size:22px">Vigilancia Marcaria INPI</h1>
