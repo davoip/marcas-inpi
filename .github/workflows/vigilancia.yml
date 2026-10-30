@@ -17,14 +17,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Instalar OCR (Tesseract)
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng
+
       - name: Instalar dependencias
-        run: pip install requests pdfplumber jellyfish
+        run: pip install requests pdfplumber pytesseract pillow
 
       - name: Ejecutar vigilancia semanal
         env:
           EMAIL: ${{ secrets.EMAIL }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          UMBRAL_SIMILITUD: "70"
+          UMBRAL_SIMILITUD: "60"
         run: python analizar.py
 
       - name: Guardar reportes en rama main
