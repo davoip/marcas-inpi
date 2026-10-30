@@ -1,0 +1,4 @@
+requests
+pdfplumber
+pytesseract
+pillow
